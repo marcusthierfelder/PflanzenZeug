@@ -47,9 +47,40 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
 
       final service = ClaudeService(apiKey);
       final fertilizers = ref.read(fertilizersProvider);
+
+      // Kontext aus DB laden falls Pflanze verknüpft
+      String? location;
+      String? potInfo;
+      String? previousDiagnosis;
+      List<File>? historicalImages;
+
+      if (widget.plantId != null) {
+        final plant = DatabaseService.instance.getPlant(widget.plantId!);
+        if (plant != null) {
+          location = plant.location;
+          potInfo = plant.potInfo;
+          previousDiagnosis = plant.diagnosisResult;
+        }
+        final photos = DatabaseService.instance
+            .getPhotosForPlant(widget.plantId!);
+        // Ältere Fotos als Kontext (max 3, nicht die aktuellen)
+        final currentPaths = widget.images.map((f) => f.path).toSet();
+        final older = photos
+            .where((p) => !currentPaths.contains(p.filePath))
+            .take(3)
+            .map((p) => File(p.filePath))
+            .where((f) => f.existsSync())
+            .toList();
+        if (older.isNotEmpty) historicalImages = older;
+      }
+
       final result = await service.diagnosePlant(
         images: widget.images,
         plantName: widget.plantName,
+        location: location,
+        potInfo: potInfo,
+        previousDiagnosis: previousDiagnosis,
+        historicalImages: historicalImages,
         availableFertilizers: fertilizers.isNotEmpty ? fertilizers : null,
       );
       setState(() => _result = result);

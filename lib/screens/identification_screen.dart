@@ -38,6 +38,9 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
       final service = ClaudeService(apiKey);
       final result = await service.identifyPlant(widget.images);
       setState(() => _result = result);
+
+      // Automatisch zur Sammlung speichern
+      await _autoSave(result);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -45,69 +48,28 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     }
   }
 
-  Future<void> _saveToCollection() async {
-    final nicknameCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Zur Sammlung hinzufügen'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nicknameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Name (z.B. "Wohnzimmer-Orchidee")',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: locationCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Standort (z.B. "Südfenster")',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Speichern'),
-          ),
-        ],
-      ),
-    );
-
-    if (saved != true) return;
-
+  Future<void> _autoSave(String result) async {
     final db = DatabaseService.instance;
     final plantId = db.generateId();
     final now = DateTime.now();
-    final nickname = nicknameCtrl.text.trim().isEmpty
-        ? (_result?.split('\n').first ?? 'Meine Pflanze')
-        : nicknameCtrl.text.trim();
+
+    // Parse structured name from Claude response
+    final nameMatch = RegExp(r'NAME:\s*(.+)').firstMatch(result);
+    final sciMatch = RegExp(r'WISSENSCHAFTLICH:\s*(.+)').firstMatch(result);
+    final name = nameMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim() ?? '';
+    final scientificName = sciMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim();
 
     final plant = Plant(
       id: plantId,
-      nickname: nickname,
-      speciesName: _result?.split('\n').first.replaceAll(RegExp(r'[*#]'), '').trim(),
-      location: locationCtrl.text.trim(),
-      identificationResult: _result,
+      nickname: name.isNotEmpty ? name : 'Meine Pflanze',
+      speciesName: name.isNotEmpty ? name : null,
+      scientificName: scientificName,
+      identificationResult: result,
       createdAt: now,
       updatedAt: now,
     );
     await db.savePlant(plant);
 
-    // Persist images
     for (final image in widget.images) {
       final path = await db.persistImage(image);
       await db.savePhoto(PlantPhoto(
@@ -120,14 +82,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     }
 
     ref.invalidate(plantsProvider);
-
     setState(() => _savedPlantId = plantId);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pflanze gespeichert!')),
-      );
-    }
   }
 
   @override
@@ -238,13 +193,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              if (_savedPlantId == null)
-                FilledButton.icon(
-                  onPressed: _saveToCollection,
-                  icon: const Icon(Icons.bookmark_add),
-                  label: const Text('Zur Sammlung hinzufügen'),
-                )
-              else
+              if (_savedPlantId != null)
                 Card(
                   color: theme.colorScheme.primaryContainer,
                   child: Padding(

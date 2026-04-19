@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/database_provider.dart';
 import '../models/plant.dart';
+import '../models/plant_photo.dart';
 import 'home_screen.dart';
 import 'plant_detail_screen.dart';
 import 'fertilizer_inventory_screen.dart';
 import 'care_overview_screen.dart';
+import 'status_wizard_screen.dart';
 
 class PlantCollectionScreen extends ConsumerStatefulWidget {
   const PlantCollectionScreen({super.key});
@@ -61,8 +63,30 @@ class _PlantsTab extends ConsumerWidget {
     final plants = ref.watch(plantsProvider);
     final theme = Theme.of(context);
 
+    final pendingChecks = plants.where((p) {
+      final lastCheck = p.lastCheckUp ?? p.createdAt;
+      return DateTime.now().difference(lastCheck).inDays >= 7;
+    }).length;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Meine Pflanzen')),
+      appBar: AppBar(
+        title: const Text('Meine Pflanzen'),
+        actions: [
+          if (plants.isNotEmpty)
+            IconButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => const StatusWizardScreen()),
+              ),
+              icon: Badge(
+                isLabelVisible: pendingChecks > 0,
+                label: Text('$pendingChecks'),
+                child: const Icon(Icons.fact_check_outlined),
+              ),
+              tooltip: 'Pflanzen-Check',
+            ),
+        ],
+      ),
       body: plants.isEmpty ? _buildEmptyState(theme) : _buildGrid(plants),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.of(context).push(
@@ -123,13 +147,23 @@ class _PlantsTab extends ConsumerWidget {
   }
 }
 
+PlantPhoto _coverPhoto(Plant plant, List<PlantPhoto> photos) {
+  if (plant.coverPhotoId != null) {
+    final cover = photos.where((p) => p.id == plant.coverPhotoId).firstOrNull;
+    if (cover != null) return cover;
+  }
+  return photos.first;
+}
+
 class _PlantCard extends ConsumerWidget {
   final Plant plant;
   const _PlantCard({required this.plant});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final photos = ref.watch(plantPhotosProvider(plant.id));
+    final photos = ref.watch(plantPhotosProvider(plant.id))
+        .where((p) => File(p.filePath).existsSync())
+        .toList();
     final theme = Theme.of(context);
 
     return Card(
@@ -146,7 +180,7 @@ class _PlantCard extends ConsumerWidget {
             Expanded(
               child: photos.isNotEmpty
                   ? Image.file(
-                      File(photos.first.filePath),
+                      File(_coverPhoto(plant, photos).filePath),
                       fit: BoxFit.cover,
                     )
                   : Container(

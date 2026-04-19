@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -54,8 +55,11 @@ class ClaudeService {
       'type': 'text',
       'text':
           'Identifiziere diese Pflanze anhand der ${images.length} Fotos. '
-          'Achte genau auf Blattform, Blattanordnung, Blüten, Wuchsform und Wurzeln. '
-          'Nenne den deutschen Namen und den wissenschaftlichen Namen (Gattung und Art). '
+          'Achte genau auf Blattform, Blattanordnung, Blüten, Wuchsform und Wurzeln.\n\n'
+          'Antworte EXAKT in diesem Format:\n'
+          'NAME: <Deutscher Pflanzenname>\n'
+          'WISSENSCHAFTLICH: <Gattung Art>\n\n'
+          '<Weitere Details zur Pflanze, Beschreibung, Pflegehinweise etc.>\n\n'
           'Wenn du dir nicht sicher bist, gib die 2-3 wahrscheinlichsten '
           'Kandidaten mit geschätzter Wahrscheinlichkeit an. '
           'Antworte auf Deutsch, kurz und präzise.',
@@ -67,18 +71,62 @@ class ClaudeService {
   Future<String> diagnosePlant({
     required List<File> images,
     required String plantName,
+    String? location,
+    String? potInfo,
+    String? previousDiagnosis,
+    List<File>? historicalImages,
     List<Fertilizer>? availableFertilizers,
   }) async {
-    final imageContents = _encodeImages(images);
+    final imageContents = <Map<String, dynamic>>[];
+
+    // Historische Fotos zuerst senden (ältere Aufnahmen als Kontext)
+    if (historicalImages != null && historicalImages.isNotEmpty) {
+      imageContents.addAll(_encodeImages(historicalImages));
+      imageContents.add({
+        'type': 'text',
+        'text': '⬆️ Das sind ältere Fotos der Pflanze zum Vergleich.',
+      });
+    }
+
+    // Aktuelle Fotos
+    imageContents.addAll(_encodeImages(images));
 
     var promptText =
-        'Diese Pflanze wurde als "$plantName" identifiziert. '
-        'Bitte analysiere die Bilder und beantworte auf Deutsch:\n\n'
+        'Diese Pflanze wurde als "$plantName" identifiziert.\n\n';
+
+    // Standort- und Topf-Kontext
+    if ((location != null && location.isNotEmpty) ||
+        (potInfo != null && potInfo.isNotEmpty)) {
+      promptText += '**Aktuelle Bedingungen:**\n';
+      if (location != null && location.isNotEmpty) {
+        promptText += '- Standort: $location\n';
+      }
+      if (potInfo != null && potInfo.isNotEmpty) {
+        promptText += '- Topf: $potInfo\n';
+      }
+      promptText += '\n';
+    }
+
+    // Frühere Diagnose als Kontext
+    if (previousDiagnosis != null && previousDiagnosis.isNotEmpty) {
+      promptText += '**Letzte Diagnose:**\n$previousDiagnosis\n\n'
+          'Berücksichtige die letzte Diagnose und erkenne '
+          'Veränderungen (Verbesserung oder Verschlechterung).\n\n';
+    }
+
+    if (historicalImages != null && historicalImages.isNotEmpty) {
+      promptText += 'Die älteren Fotos oben zeigen den früheren Zustand. '
+          'Vergleiche mit den aktuellen Fotos und beschreibe Veränderungen.\n\n';
+    }
+
+    promptText +=
+        'Bitte analysiere die aktuellen Bilder und beantworte auf Deutsch:\n\n'
         '1. **Gesundheitszustand**: Wie sieht die Pflanze aus? Gibt es sichtbare Probleme?\n'
         '2. **Krankheiten**: Erkennst du Anzeichen von Krankheiten? Wenn ja, welche?\n'
         '3. **Mangelerscheinungen**: Gibt es Anzeichen für Nährstoffmangel (z.B. Stickstoff, Eisen, Kalium)?\n'
         '4. **Schädlinge**: Siehst du Anzeichen von Schädlingsbefall?\n'
-        '5. **Empfehlungen**: Was sollte der Besitzer tun?\n'
+        '5. **Veränderungen**: Hat sich der Zustand im Vergleich zu früheren Fotos/Diagnosen verändert?\n'
+        '6. **Empfehlungen**: Was sollte der Besitzer tun?\n'
         '   - Welcher Dünger? (konkreter Vorschlag)\n'
         '   - Gießverhalten ändern?\n'
         '   - Standort ändern?\n'
@@ -166,27 +214,47 @@ class ClaudeService {
   Future<String> _callClaudeMessages(
     List<Map<String, dynamic>> messages, {
     String? systemPrompt,
+    int maxTokens = 2048,
   }) async {
-    final response = await http.post(
-      Uri.parse('https://api.anthropic.com/v1/messages'),
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: jsonEncode({
-        'model': 'claude-opus-4-20250514',
-        'max_tokens': 2048,
-        'system': systemPrompt ?? _defaultSystemPrompt,
-        'messages': messages,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      final error = jsonDecode(response.body);
+    final http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('https://api.anthropic.com/v1/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: jsonEncode({
+          'model': 'claude-sonnet-4-20250514',
+          'max_tokens': maxTokens,
+          'system': systemPrompt ?? _defaultSystemPrompt,
+          'messages': messages,
+        }),
+      ).timeout(const Duration(seconds: 120));
+    } on TimeoutException {
       throw Exception(
-        error['error']?['message'] ?? 'API-Fehler (${response.statusCode})',
+        'Die Anfrage hat zu lange gedauert. Bitte versuche es erneut.',
       );
+    } on SocketException {
+      throw Exception(
+        'Keine Internetverbindung. Bitte prüfe deine Verbindung.',
+      );
+    }
+
+    if (response.statusCode == 401) {
+      throw Exception('Ungültiger API-Key. Bitte prüfe deinen Schlüssel.');
+    }
+    if (response.statusCode == 429) {
+      throw Exception('Zu viele Anfragen. Bitte warte einen Moment.');
+    }
+    if (response.statusCode != 200) {
+      String message = 'API-Fehler (${response.statusCode})';
+      try {
+        final error = jsonDecode(response.body);
+        message = error['error']?['message'] as String? ?? message;
+      } catch (_) {}
+      throw Exception(message);
     }
 
     final data = jsonDecode(response.body);
@@ -194,6 +262,9 @@ class ClaudeService {
         .where((block) => block['type'] == 'text')
         .map((block) => block['text'] as String)
         .join('\n');
+    if (textBlocks.isEmpty) {
+      throw Exception('Keine Antwort von Claude erhalten.');
+    }
     return textBlocks;
   }
 }

@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/care_schedule.dart';
+import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import '../providers/api_key_provider.dart';
 import '../providers/database_provider.dart';
 import '../services/claude_service.dart';
 import '../services/database_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/photo_carousel.dart';
+import '../widgets/care_section.dart';
 import 'diagnosis_screen.dart';
 import 'chat_screen.dart';
 
@@ -42,7 +46,6 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
       ));
     }
     ref.invalidate(plantPhotosProvider(widget.plantId));
-    setState(() {});
   }
 
   void _startDiagnosis() {
@@ -97,7 +100,6 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
         diagnosisResult: plant.diagnosisResult,
       );
 
-      // Try to parse JSON from response
       final jsonMatch = RegExp(r'\{[\s\S]*\}').firstMatch(response);
       if (jsonMatch == null) throw Exception('Kein JSON in Antwort');
 
@@ -127,7 +129,7 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
       }
 
       ref.invalidate(plantCareSchedulesProvider(widget.plantId));
-      setState(() {});
+      await NotificationService.instance.scheduleAllCareReminders();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -148,7 +150,6 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
     final plant = ref.watch(plantProvider(widget.plantId));
     final photos = ref.watch(plantPhotosProvider(widget.plantId));
     final careSchedules = ref.watch(plantCareSchedulesProvider(widget.plantId));
-    final theme = Theme.of(context);
 
     if (plant == null) {
       return Scaffold(
@@ -171,39 +172,7 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Photo carousel
-            if (photos.isNotEmpty)
-              SizedBox(
-                height: 200,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.all(12),
-                  itemCount: photos.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (_, index) {
-                    final photo = photos[index];
-                    return Column(
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              File(photo.filePath),
-                              width: 160,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${photo.takenAt.day}.${photo.takenAt.month}.${photo.takenAt.year}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
+            PhotoCarousel(plant: plant, photos: photos),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -211,72 +180,13 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Info card
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (plant.speciesName != null) ...[
-                            Text(plant.speciesName!,
-                                style: theme.textTheme.titleMedium),
-                            if (plant.scientificName != null)
-                              Text(
-                                plant.scientificName!,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontStyle: FontStyle.italic,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            const SizedBox(height: 8),
-                          ],
-                          if (plant.location.isNotEmpty)
-                            Row(
-                              children: [
-                                Icon(Icons.location_on,
-                                    size: 16,
-                                    color: theme.colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                Text(plant.location,
-                                    style: theme.textTheme.bodyMedium),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _PlantInfoCard(plant: plant),
 
                   const SizedBox(height: 8),
 
                   // Last diagnosis
                   if (plant.diagnosisResult != null)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.medical_services,
-                                    size: 20,
-                                    color: theme.colorScheme.primary),
-                                const SizedBox(width: 8),
-                                Text('Letzte Diagnose',
-                                    style: theme.textTheme.titleSmall),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              plant.diagnosisResult!,
-                              style: theme.textTheme.bodySmall,
-                              maxLines: 6,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    _DiagnosisCard(diagnosis: plant.diagnosisResult!),
 
                   const SizedBox(height: 16),
 
@@ -301,58 +211,12 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Care schedules section
-                  if (careSchedules.isNotEmpty) ...[
-                    Text('Pflege-Plan',
-                        style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    ...careSchedules.map((care) {
-                      final isOverdue = care.isOverdue;
-                      final daysUntil =
-                          care.nextDue.difference(DateTime.now()).inDays;
-                      return Card(
-                        color: isOverdue
-                            ? theme.colorScheme.errorContainer
-                            : null,
-                        child: ListTile(
-                          leading: Icon(
-                            care.type == 'watering'
-                                ? Icons.water_drop
-                                : Icons.science,
-                            color: care.type == 'watering'
-                                ? Colors.blue
-                                : Colors.orange,
-                          ),
-                          title: Text(care.type == 'watering'
-                              ? 'Gießen'
-                              : 'Düngen'),
-                          subtitle: Text(isOverdue
-                              ? '${-daysUntil} Tag${daysUntil == -1 ? '' : 'e'} überfällig'
-                              : 'in $daysUntil Tag${daysUntil == 1 ? '' : 'en'} (alle ${care.intervalDays} Tage)'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.check_circle_outline),
-                            onPressed: () async {
-                              care.lastDone = DateTime.now();
-                              await DatabaseService.instance
-                                  .saveCareSchedule(care);
-                              ref.invalidate(
-                                  plantCareSchedulesProvider(widget.plantId));
-                              setState(() {});
-                            },
-                          ),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 8),
-                  ],
-
-                  OutlinedButton.icon(
-                    onPressed: _generateCareSchedule,
-                    icon: const Icon(Icons.schedule),
-                    label: Text(careSchedules.isEmpty
-                        ? 'Pflege-Plan erstellen'
-                        : 'Pflege-Plan neu erstellen'),
+                  CareSection(
+                    plantId: widget.plantId,
+                    careSchedules: careSchedules,
+                    onGeneratePlan: _generateCareSchedule,
                   ),
+
                   const SizedBox(height: 32),
                 ],
               ),
@@ -366,6 +230,7 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
   void _editPlant(BuildContext context, plant) {
     final nicknameCtrl = TextEditingController(text: plant.nickname);
     final locationCtrl = TextEditingController(text: plant.location);
+    final potCtrl = TextEditingController(text: plant.potInfo);
 
     showDialog(
       context: context,
@@ -386,6 +251,16 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
               controller: locationCtrl,
               decoration: const InputDecoration(
                 labelText: 'Standort',
+                hintText: 'z.B. Wohnzimmer, Balkon',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: potCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Topf',
+                hintText: 'z.B. Terrakotta 20cm',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -400,16 +275,107 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
             onPressed: () async {
               plant.nickname = nicknameCtrl.text.trim();
               plant.location = locationCtrl.text.trim();
+              plant.potInfo = potCtrl.text.trim();
               plant.updatedAt = DateTime.now();
               await DatabaseService.instance.savePlant(plant);
               ref.invalidate(plantProvider(widget.plantId));
               ref.invalidate(plantsProvider);
               if (context.mounted) Navigator.pop(context);
-              setState(() {});
             },
             child: const Text('Speichern'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PlantInfoCard extends StatelessWidget {
+  final Plant plant;
+  const _PlantInfoCard({required this.plant});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (plant.speciesName != null) ...[
+              Text(plant.speciesName!, style: theme.textTheme.titleMedium),
+              if (plant.scientificName != null)
+                Text(
+                  plant.scientificName!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontStyle: FontStyle.italic,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+            if (plant.location.isNotEmpty)
+              _InfoRow(Icons.location_on, plant.location),
+            if (plant.potInfo.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _InfoRow(Icons.yard, plant.potInfo),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _InfoRow(this.icon, this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 4),
+        Text(text, style: theme.textTheme.bodyMedium),
+      ],
+    );
+  }
+}
+
+class _DiagnosisCard extends StatelessWidget {
+  final String diagnosis;
+  const _DiagnosisCard({required this.diagnosis});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.medical_services,
+                    size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('Letzte Diagnose', style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              diagnosis,
+              style: theme.textTheme.bodySmall,
+              maxLines: 6,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

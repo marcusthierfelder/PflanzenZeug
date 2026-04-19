@@ -4,10 +4,14 @@ import 'screens/api_key_wizard_screen.dart';
 import 'screens/plant_collection_screen.dart';
 import 'providers/api_key_provider.dart';
 import 'services/database_service.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseService.instance.init();
+  await NotificationService.instance.init();
+  await NotificationService.instance.requestPermissions();
+  await NotificationService.instance.scheduleAllCareReminders();
   runApp(const ProviderScope(child: PflanzenZeugApp()));
 }
 
