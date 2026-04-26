@@ -2,8 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/plant.dart';
+import '../models/plant_photo.dart';
 import '../providers/api_key_provider.dart';
+import '../providers/database_provider.dart';
+import '../services/database_service.dart';
 import 'identification_screen.dart';
+import 'plant_detail_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -53,6 +58,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => IdentificationScreen(images: List.of(_images)),
+      ),
+    );
+  }
+
+  Future<void> _createManually() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('Pflanze anlegen'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Name der Pflanze',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (value) => Navigator.pop(context, value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('Anlegen'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (name == null || name.isEmpty || !mounted) return;
+
+    final db = DatabaseService.instance;
+    final plantId = db.generateId();
+    final now = DateTime.now();
+
+    final plant = Plant(
+      id: plantId,
+      nickname: name,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await db.savePlant(plant);
+
+    // Fotos speichern falls vorhanden
+    for (final image in _images) {
+      final path = await db.persistImage(image);
+      await db.savePhoto(PlantPhoto(
+        id: db.generateId(),
+        plantId: plantId,
+        filePath: path,
+        takenAt: now,
+        purpose: 'identification',
+      ));
+    }
+
+    ref.invalidate(plantsProvider);
+
+    if (!mounted) return;
+    // Direkt zur Pflanzen-Detailseite
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PlantDetailScreen(plantId: plantId),
       ),
     );
   }
@@ -192,6 +264,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onPressed: _images.isEmpty ? null : _startIdentification,
               icon: const Icon(Icons.search),
               label: const Text('Pflanze erkennen'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _createManually,
+              icon: const Icon(Icons.add),
+              label: const Text('Manuell anlegen'),
             ),
           ],
         ),

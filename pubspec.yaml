@@ -21,6 +21,9 @@ dependencies:
   # Lokale Speicherung (API Key)
   shared_preferences: ^2.2.2
 
+  # Keychain-Speicherung (überlebt Reinstallation)
+  flutter_secure_storage: ^9.2.4
+
   # State Management
   flutter_riverpod: ^2.6.1
   mobile_scanner: ^7.2.0

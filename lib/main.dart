@@ -9,6 +9,7 @@ import 'services/notification_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseService.instance.init();
+  await DatabaseService.instance.restoreFromKeychainIfEmpty();
   await NotificationService.instance.init();
   await NotificationService.instance.requestPermissions();
   await NotificationService.instance.scheduleAllCareReminders();
@@ -43,7 +44,7 @@ class PflanzenZeugApp extends ConsumerWidget {
         loading: () => const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         ),
-        error: (_, _) => const ApiKeyWizardScreen(),
+        error: (_, _) => const PlantCollectionScreen(),
       ),
     );
   }

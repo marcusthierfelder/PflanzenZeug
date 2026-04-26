@@ -7,6 +7,8 @@ import '../models/plant_photo.dart';
 import '../models/chat_message.dart';
 import '../models/fertilizer.dart';
 import '../models/care_schedule.dart';
+import 'icloud_service.dart';
+import 'keychain_backup_service.dart';
 
 const _uuid = Uuid();
 
@@ -45,13 +47,42 @@ class DatabaseService {
     final ext = source.path.split('.').last;
     final dest = '${_imageDir.path}/$id.$ext';
     await source.copy(dest);
+    // Auch in iCloud speichern (fire-and-forget)
+    ICloudService.instance.saveImage(id, File(dest)).ignore();
     return dest;
+  }
+
+  bool _isRestoring = false;
+
+  Future<void> _triggerBackup() async {
+    if (_isRestoring) return;
+    // Fire-and-forget, Fehler werden ignoriert
+    KeychainBackupService.instance.backup().ignore();
+  }
+
+  /// Prüft ob die lokale DB leer ist und stellt ggf. aus dem Keychain wieder her.
+  /// Erstellt ein initiales Backup falls Daten vorhanden aber kein Backup existiert.
+  Future<void> restoreFromKeychainIfEmpty() async {
+    if (_plantsBox.isNotEmpty) {
+      // Daten vorhanden — sicherstellen dass ein Backup existiert
+      final hasBackup = await KeychainBackupService.instance.hasBackup();
+      if (!hasBackup) {
+        await KeychainBackupService.instance.backup();
+      }
+      return;
+    }
+    final hasBackup = await KeychainBackupService.instance.hasBackup();
+    if (!hasBackup) return;
+    _isRestoring = true;
+    await KeychainBackupService.instance.restore();
+    _isRestoring = false;
   }
 
   // --- Plants ---
 
   Future<void> savePlant(Plant plant) async {
     await _plantsBox.put(plant.id, plant.toJson());
+    _triggerBackup();
   }
 
   Plant? getPlant(String id) {
@@ -89,12 +120,20 @@ class DatabaseService {
     for (final key in careKeys) {
       await _careBox.delete(key);
     }
+    _triggerBackup();
   }
 
   // --- Plant Photos ---
 
   Future<void> savePhoto(PlantPhoto photo) async {
     await _photosBox.put(photo.id, photo.toJson());
+    _triggerBackup();
+  }
+
+  List<PlantPhoto> getAllPhotos() {
+    return _photosBox.values
+        .map((json) => PlantPhoto.fromJson(json))
+        .toList();
   }
 
   List<PlantPhoto> getPhotosForPlant(String plantId) {
@@ -109,6 +148,13 @@ class DatabaseService {
 
   Future<void> saveChatMessage(ChatMessage message) async {
     await _chatBox.put(message.id, message.toJson());
+    _triggerBackup();
+  }
+
+  List<ChatMessage> getAllChatMessages() {
+    return _chatBox.values
+        .map((json) => ChatMessage.fromJson(json))
+        .toList();
   }
 
   List<ChatMessage> getChatMessagesForPlant(String plantId) {
@@ -123,6 +169,7 @@ class DatabaseService {
 
   Future<void> saveFertilizer(Fertilizer fertilizer) async {
     await _fertilizersBox.put(fertilizer.id, fertilizer.toJson());
+    _triggerBackup();
   }
 
   List<Fertilizer> getAllFertilizers() {
@@ -142,12 +189,20 @@ class DatabaseService {
       }
     }
     await _fertilizersBox.delete(id);
+    _triggerBackup();
   }
 
   // --- Care Schedules ---
 
   Future<void> saveCareSchedule(CareSchedule schedule) async {
     await _careBox.put(schedule.id, schedule.toJson());
+    _triggerBackup();
+  }
+
+  List<CareSchedule> getAllCareSchedules() {
+    return _careBox.values
+        .map((json) => CareSchedule.fromJson(json))
+        .toList();
   }
 
   List<CareSchedule> getCareSchedulesForPlant(String plantId) {
@@ -168,5 +223,6 @@ class DatabaseService {
 
   Future<void> deleteCareSchedule(String id) async {
     await _careBox.delete(id);
+    _triggerBackup();
   }
 }

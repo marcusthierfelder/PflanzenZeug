@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/api_key_provider.dart';
+import 'plant_collection_screen.dart';
 import 'qr_scanner_screen.dart';
 
 class ApiKeyWizardScreen extends ConsumerStatefulWidget {
@@ -109,6 +110,16 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
                 onPressed: _saveKey,
                 icon: const Icon(Icons.check),
                 label: const Text('Weiter'),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                        builder: (_) => const PlantCollectionScreen()),
+                  );
+                },
+                child: const Text('Ohne API Key fortfahren'),
               ),
               const SizedBox(height: 40),
             ],
