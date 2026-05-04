@@ -51,6 +51,7 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
       // Kontext aus DB laden falls Pflanze verknüpft
       String? location;
       String? potInfo;
+      bool isMixedPot = false;
       String? previousDiagnosis;
       List<File>? historicalImages;
 
@@ -59,6 +60,7 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
         if (plant != null) {
           location = plant.location;
           potInfo = plant.potInfo;
+          isMixedPot = plant.isMixedPot;
           previousDiagnosis = plant.diagnosisResult;
         }
         final photos = DatabaseService.instance
@@ -79,6 +81,7 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
         plantName: widget.plantName,
         location: location,
         potInfo: potInfo,
+        isMixedPot: isMixedPot,
         previousDiagnosis: previousDiagnosis,
         historicalImages: historicalImages,
         availableFertilizers: fertilizers.isNotEmpty ? fertilizers : null,

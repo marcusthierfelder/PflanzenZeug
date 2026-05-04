@@ -105,6 +105,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
         plantName: plant.speciesName ?? plant.nickname,
         location: plant.location,
         potInfo: plant.potInfo,
+        isMixedPot: plant.isMixedPot,
         previousDiagnosis: plant.diagnosisResult,
         historicalImages: historicalImages.isNotEmpty ? historicalImages : null,
         availableFertilizers: fertilizers.isNotEmpty ? fertilizers : null,

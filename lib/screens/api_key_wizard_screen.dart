@@ -43,7 +43,7 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'PflanzenZeug',
+                'Pflanzenwart Pro',
                 style: theme.textTheme.headlineLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),

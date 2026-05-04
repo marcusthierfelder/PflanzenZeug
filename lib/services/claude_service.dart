@@ -48,22 +48,32 @@ class ClaudeService {
         'Empfehle wenn möglich einen der vorhandenen Dünger.';
   }
 
-  Future<String> identifyPlant(List<File> images) async {
+  Future<String> identifyPlant(List<File> images, {bool isMixedPot = false}) async {
     final imageContents = _encodeImages(images);
 
-    imageContents.add({
-      'type': 'text',
-      'text':
-          'Identifiziere diese Pflanze anhand der ${images.length} Fotos. '
-          'Achte genau auf Blattform, Blattanordnung, Blüten, Wuchsform und Wurzeln.\n\n'
-          'Antworte EXAKT in diesem Format:\n'
-          'NAME: <Deutscher Pflanzenname>\n'
-          'WISSENSCHAFTLICH: <Gattung Art>\n\n'
-          '<Weitere Details zur Pflanze, Beschreibung, Pflegehinweise etc.>\n\n'
-          'Wenn du dir nicht sicher bist, gib die 2-3 wahrscheinlichsten '
-          'Kandidaten mit geschätzter Wahrscheinlichkeit an. '
-          'Antworte auf Deutsch, kurz und präzise.',
-    });
+    final promptText = isMixedPot
+        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen. '
+            'Identifiziere ALLE sichtbaren Arten anhand der ${images.length} Fotos.\n\n'
+            'Antworte EXAKT in diesem Format:\n'
+            'NAME: Mischtopf: <Art 1> & <Art 2>[ & ...]\n'
+            'WISSENSCHAFTLICH: <Gattung Art 1>, <Gattung Art 2>[, ...]\n\n'
+            'PFLANZEN:\n'
+            '1. <Deutscher Name> (<Gattung Art>) — kurze Beschreibung\n'
+            '2. ...\n\n'
+            'Beachte beim Beschreiben mögliche Konflikte zwischen den Arten '
+            '(z.B. unterschiedlicher Wasser- oder Lichtbedarf). '
+            'Antworte auf Deutsch, kurz und präzise.'
+        : 'Identifiziere diese Pflanze anhand der ${images.length} Fotos. '
+            'Achte genau auf Blattform, Blattanordnung, Blüten, Wuchsform und Wurzeln.\n\n'
+            'Antworte EXAKT in diesem Format:\n'
+            'NAME: <Deutscher Pflanzenname>\n'
+            'WISSENSCHAFTLICH: <Gattung Art>\n\n'
+            '<Weitere Details zur Pflanze, Beschreibung, Pflegehinweise etc.>\n\n'
+            'Wenn du dir nicht sicher bist, gib die 2-3 wahrscheinlichsten '
+            'Kandidaten mit geschätzter Wahrscheinlichkeit an. '
+            'Antworte auf Deutsch, kurz und präzise.';
+
+    imageContents.add({'type': 'text', 'text': promptText});
 
     return _callClaude(imageContents);
   }
@@ -73,6 +83,7 @@ class ClaudeService {
     required String plantName,
     String? location,
     String? potInfo,
+    bool isMixedPot = false,
     String? previousDiagnosis,
     List<File>? historicalImages,
     List<Fertilizer>? availableFertilizers,
@@ -91,8 +102,12 @@ class ClaudeService {
     // Aktuelle Fotos
     imageContents.addAll(_encodeImages(images));
 
-    var promptText =
-        'Diese Pflanze wurde als "$plantName" identifiziert.\n\n';
+    var promptText = isMixedPot
+        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen, identifiziert als "$plantName". '
+            'Analysiere ALLE Arten gemeinsam und beachte besonders Konflikte und '
+            'Wechselwirkungen zwischen den Arten (Wasser-, Licht-, Nährstoff-Bedarf, '
+            'konkurrierende Wurzeln, gegenseitige Beschattung).\n\n'
+        : 'Diese Pflanze wurde als "$plantName" identifiziert.\n\n';
 
     // Standort- und Topf-Kontext
     if ((location != null && location.isNotEmpty) ||

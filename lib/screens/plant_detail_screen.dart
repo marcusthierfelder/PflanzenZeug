@@ -231,60 +231,78 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
     final nicknameCtrl = TextEditingController(text: plant.nickname);
     final locationCtrl = TextEditingController(text: plant.location);
     final potCtrl = TextEditingController(text: plant.potInfo);
+    bool isMixedPot = plant.isMixedPot;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Pflanze bearbeiten'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nicknameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(),
-              ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setLocalState) => AlertDialog(
+          title: const Text('Pflanze bearbeiten'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nicknameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: locationCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Standort',
+                    hintText: 'z.B. Wohnzimmer, Balkon',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: potCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Topf',
+                    hintText: 'z.B. Terrakotta 20cm',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SwitchListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Mischtopf'),
+                  subtitle: const Text(
+                    'Mehrere Pflanzen in einem Topf',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  value: isMixedPot,
+                  onChanged: (v) => setLocalState(() => isMixedPot = v),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: locationCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Standort',
-                hintText: 'z.B. Wohnzimmer, Balkon',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Abbrechen'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: potCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Topf',
-                hintText: 'z.B. Terrakotta 20cm',
-                border: OutlineInputBorder(),
-              ),
+            FilledButton(
+              onPressed: () async {
+                plant.nickname = nicknameCtrl.text.trim();
+                plant.location = locationCtrl.text.trim();
+                plant.potInfo = potCtrl.text.trim();
+                plant.isMixedPot = isMixedPot;
+                plant.updatedAt = DateTime.now();
+                await DatabaseService.instance.savePlant(plant);
+                ref.invalidate(plantProvider(widget.plantId));
+                ref.invalidate(plantsProvider);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('Speichern'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              plant.nickname = nicknameCtrl.text.trim();
-              plant.location = locationCtrl.text.trim();
-              plant.potInfo = potCtrl.text.trim();
-              plant.updatedAt = DateTime.now();
-              await DatabaseService.instance.savePlant(plant);
-              ref.invalidate(plantProvider(widget.plantId));
-              ref.invalidate(plantsProvider);
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text('Speichern'),
-          ),
-        ],
       ),
     );
   }
@@ -320,6 +338,10 @@ class _PlantInfoCard extends StatelessWidget {
             if (plant.potInfo.isNotEmpty) ...[
               const SizedBox(height: 4),
               _InfoRow(Icons.yard, plant.potInfo),
+            ],
+            if (plant.isMixedPot) ...[
+              const SizedBox(height: 4),
+              _InfoRow(Icons.diversity_3, 'Mischtopf (mehrere Arten)'),
             ],
           ],
         ),

@@ -8,7 +8,7 @@ class ICloudService {
   static final instance = ICloudService._();
 
   static const _channel =
-      MethodChannel('de.marcusthierfelder.pflanzenZeug/icloud');
+      MethodChannel('de.marcusthierfelder.pflanzenwart/icloud');
 
   String? _containerPath;
 

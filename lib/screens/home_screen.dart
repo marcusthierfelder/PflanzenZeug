@@ -20,6 +20,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _images = <File>[];
   final _picker = ImagePicker();
+  bool _isMixedPot = false;
 
   Future<void> _takePhoto() async {
     final photo = await _picker.pickImage(
@@ -57,7 +58,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => IdentificationScreen(images: List.of(_images)),
+        builder: (_) => IdentificationScreen(
+          images: List.of(_images),
+          isMixedPot: _isMixedPot,
+        ),
       ),
     );
   }
@@ -101,6 +105,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final plant = Plant(
       id: plantId,
       nickname: name,
+      isMixedPot: _isMixedPot,
       createdAt: now,
       updatedAt: now,
     );
@@ -240,6 +245,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Mehrere Pflanzen in einem Topf'),
+              subtitle: const Text(
+                'Alle Arten werden gemeinsam analysiert',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: _isMixedPot,
+              onChanged: (v) => setState(() => _isMixedPot = v),
+            ),
             Row(
               children: [
                 Expanded(

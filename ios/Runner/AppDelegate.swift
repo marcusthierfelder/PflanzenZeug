@@ -13,16 +13,16 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    let controller = window?.rootViewController as? FlutterViewController
+    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PflanzenwartICloudChannel")!
     let channel = FlutterMethodChannel(
-      name: "de.marcusthierfelder.pflanzenZeug/icloud",
-      binaryMessenger: controller?.binaryMessenger ?? engineBridge.pluginRegistry.messenger
+      name: "de.marcusthierfelder.pflanzenwart/icloud",
+      binaryMessenger: registrar.messenger()
     )
 
     channel.setMethodCallHandler { (call, result) in
       if call.method == "getICloudContainerPath" {
         if let url = FileManager.default.url(
-          forUbiquityContainerIdentifier: "iCloud.de.marcusthierfelder.pflanzenZeug"
+          forUbiquityContainerIdentifier: "iCloud.de.marcusthierfelder.pflanzenwart"
         ) {
           let documentsUrl = url.appendingPathComponent("Documents")
           // Ordner erstellen falls nötig

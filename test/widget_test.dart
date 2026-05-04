@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pflanzen_zeug/main.dart';
+import 'package:pflanzenwart/main.dart';
 
 void main() {
   testWidgets('App starts and shows loading', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const ProviderScope(child: PflanzenZeugApp()),
+      const ProviderScope(child: PflanzenwartApp()),
     );
     // App should render without crashing
-    expect(find.byType(PflanzenZeugApp), findsOneWidget);
+    expect(find.byType(PflanzenwartApp), findsOneWidget);
   });
 }

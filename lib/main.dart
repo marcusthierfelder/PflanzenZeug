@@ -13,18 +13,18 @@ void main() async {
   await NotificationService.instance.init();
   await NotificationService.instance.requestPermissions();
   await NotificationService.instance.scheduleAllCareReminders();
-  runApp(const ProviderScope(child: PflanzenZeugApp()));
+  runApp(const ProviderScope(child: PflanzenwartApp()));
 }
 
-class PflanzenZeugApp extends ConsumerWidget {
-  const PflanzenZeugApp({super.key});
+class PflanzenwartApp extends ConsumerWidget {
+  const PflanzenwartApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final apiKey = ref.watch(apiKeyProvider);
 
     return MaterialApp(
-      title: 'PflanzenZeug',
+      title: 'Pflanzenwart Pro',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: Colors.green,

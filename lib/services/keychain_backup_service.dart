@@ -15,7 +15,7 @@ class KeychainBackupService {
   KeychainBackupService._();
   static final instance = KeychainBackupService._();
 
-  static const _metadataKey = 'pflanzen_zeug_backup';
+  static const _metadataKey = 'pflanzenwart_backup';
 
   static const _storage = FlutterSecureStorage(
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),

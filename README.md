@@ -1,4 +1,4 @@
-# PflanzenZeug
+# Pflanzenwart
 
 Flutter-App zur Pflanzenerkennung, Gesundheitsdiagnose und Pflege-Begleitung. Fotografiere deine Zimmerpflanzen und erhalte KI-gestützte Analysen, Pflegetipps und Erinnerungen.
 

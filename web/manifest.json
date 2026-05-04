@@ -1,6 +1,6 @@
 {
-    "name": "pflanzen_zeug",
-    "short_name": "pflanzen_zeug",
+    "name": "pflanzenwart",
+    "short_name": "pflanzenwart",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

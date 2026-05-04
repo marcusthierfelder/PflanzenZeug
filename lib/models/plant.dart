@@ -5,6 +5,7 @@ class Plant {
   String? scientificName;
   String location;
   String potInfo;
+  bool isMixedPot;
   String? coverPhotoId;
   String? identificationResult;
   String? diagnosisResult;
@@ -19,6 +20,7 @@ class Plant {
     this.scientificName,
     this.location = '',
     this.potInfo = '',
+    this.isMixedPot = false,
     this.coverPhotoId,
     this.identificationResult,
     this.diagnosisResult,
@@ -34,6 +36,7 @@ class Plant {
         'scientificName': scientificName,
         'location': location,
         'potInfo': potInfo,
+        'isMixedPot': isMixedPot,
         'coverPhotoId': coverPhotoId,
         'identificationResult': identificationResult,
         'diagnosisResult': diagnosisResult,
@@ -49,6 +52,7 @@ class Plant {
         scientificName: json['scientificName'] as String?,
         location: json['location'] as String? ?? '',
         potInfo: json['potInfo'] as String? ?? '',
+        isMixedPot: json['isMixedPot'] as bool? ?? false,
         coverPhotoId: json['coverPhotoId'] as String?,
         identificationResult: json['identificationResult'] as String?,
         diagnosisResult: json['diagnosisResult'] as String?,

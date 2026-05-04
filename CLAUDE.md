@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PflanzenZeug is a Flutter/Dart mobile app for plant identification and care. Users photograph a plant, the app identifies it via the Claude API (vision), diagnoses diseases/deficiencies, and provides care recommendations. A follow-up chat allows asking further questions about the identified plant.
+Pflanzenwart is a Flutter/Dart mobile app for plant identification and care. Users photograph a plant, the app identifies it via the Claude API (vision), diagnoses diseases/deficiencies, and provides care recommendations. A follow-up chat allows asking further questions about the identified plant.
 
 The entire UI and all prompts are in **German**.
 

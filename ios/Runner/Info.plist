@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>PflanzenZeug</string>
+	<string>Pflanzenwart Pro</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>pflanzen_zeug</string>
+	<string>Pflanzenwart</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -48,9 +48,9 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>PflanzenZeug braucht Zugriff auf die Kamera um Pflanzen zu fotografieren</string>
+	<string>Pflanzenwart Pro braucht Zugriff auf die Kamera um Pflanzen zu fotografieren</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>PflanzenZeug braucht Zugriff auf die Fotogalerie um Pflanzenbilder auszuwählen</string>
+	<string>Pflanzenwart Pro braucht Zugriff auf die Fotogalerie um Pflanzenbilder auszuwählen</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

@@ -11,8 +11,13 @@ import 'diagnosis_screen.dart';
 
 class IdentificationScreen extends ConsumerStatefulWidget {
   final List<File> images;
+  final bool isMixedPot;
 
-  const IdentificationScreen({super.key, required this.images});
+  const IdentificationScreen({
+    super.key,
+    required this.images,
+    this.isMixedPot = false,
+  });
 
   @override
   ConsumerState<IdentificationScreen> createState() =>
@@ -36,7 +41,10 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
       if (apiKey == null) throw Exception('Kein API Key');
 
       final service = ClaudeService(apiKey);
-      final result = await service.identifyPlant(widget.images);
+      final result = await service.identifyPlant(
+        widget.images,
+        isMixedPot: widget.isMixedPot,
+      );
       setState(() => _result = result);
 
       // Automatisch zur Sammlung speichern
@@ -61,9 +69,10 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
 
     final plant = Plant(
       id: plantId,
-      nickname: name.isNotEmpty ? name : 'Meine Pflanze',
+      nickname: name.isNotEmpty ? name : (widget.isMixedPot ? 'Mischtopf' : 'Meine Pflanze'),
       speciesName: name.isNotEmpty ? name : null,
       scientificName: scientificName,
+      isMixedPot: widget.isMixedPot,
       identificationResult: result,
       createdAt: now,
       updatedAt: now,

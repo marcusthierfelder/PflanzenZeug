@@ -1,4 +1,4 @@
-package de.marcusthierfelder.pflanzen_zeug
+package de.marcusthierfelder.pflanzenwart
 
 import io.flutter.embedding.android.FlutterActivity
 
