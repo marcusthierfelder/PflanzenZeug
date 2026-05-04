@@ -9,6 +9,7 @@ import 'plant_detail_screen.dart';
 import 'fertilizer_inventory_screen.dart';
 import 'care_overview_screen.dart';
 import 'status_wizard_screen.dart';
+import 'api_key_settings_screen.dart';
 
 class PlantCollectionScreen extends ConsumerStatefulWidget {
   const PlantCollectionScreen({super.key});
@@ -85,6 +86,13 @@ class _PlantsTab extends ConsumerWidget {
               ),
               tooltip: 'Pflanzen-Check',
             ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ApiKeySettingsScreen()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Einstellungen',
+          ),
         ],
       ),
       body: plants.isEmpty ? _buildEmptyState(theme) : _buildGrid(plants),

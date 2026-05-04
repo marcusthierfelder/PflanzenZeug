@@ -1,8 +1,9 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/api_key_provider.dart';
-import 'plant_collection_screen.dart';
+import '../providers/first_launch_provider.dart';
 import 'qr_scanner_screen.dart';
 
 class ApiKeyWizardScreen extends ConsumerStatefulWidget {
@@ -36,11 +37,7 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 60),
-              Icon(
-                Icons.eco,
-                size: 80,
-                color: theme.colorScheme.primary,
-              ),
+              Icon(Icons.eco, size: 80, color: theme.colorScheme.primary),
               const SizedBox(height: 16),
               Text(
                 'Pflanzenwart Pro',
@@ -58,10 +55,7 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 48),
-              Text(
-                'Claude API Key',
-                style: theme.textTheme.titleMedium,
-              ),
+              Text('Claude API Key', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
               Text(
                 'Du brauchst einen API Key von console.anthropic.com. '
@@ -82,9 +76,8 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
                     icon: Icon(
                       _obscureText ? Icons.visibility : Icons.visibility_off,
                     ),
-                    onPressed: () {
-                      setState(() => _obscureText = !_obscureText);
-                    },
+                    onPressed: () =>
+                        setState(() => _obscureText = !_obscureText),
                   ),
                 ),
                 onSubmitted: (_) => _saveKey(),
@@ -92,9 +85,18 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
               const SizedBox(height: 24),
               if (Platform.isIOS || Platform.isAndroid) ...[
                 FilledButton.icon(
+                  onPressed: _pasteFromClipboard,
+                  icon: const Icon(Icons.content_paste),
+                  label: const Text('Aus Zwischenablage einfügen'),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
                   onPressed: _scanQrCode,
                   icon: const Icon(Icons.qr_code_scanner),
                   label: const Text('QR-Code scannen'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.secondary,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -113,13 +115,8 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                        builder: (_) => const PlantCollectionScreen()),
-                  );
-                },
-                child: const Text('Ohne API Key fortfahren'),
+                onPressed: _skip,
+                child: const Text('Später einrichten'),
               ),
               const SizedBox(height: 40),
             ],
@@ -129,23 +126,40 @@ class _ApiKeyWizardScreenState extends ConsumerState<ApiKeyWizardScreen> {
     );
   }
 
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Zwischenablage ist leer')),
+        );
+      }
+      return;
+    }
+    await ref.read(apiKeyProvider.notifier).setApiKey(text);
+    await ref.read(firstLaunchProvider.notifier).complete();
+  }
+
   Future<void> _scanQrCode() async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const QrScannerScreen()),
     );
     if (result != null && mounted) {
-      ref.read(apiKeyProvider.notifier).setApiKey(result);
+      await ref.read(apiKeyProvider.notifier).setApiKey(result);
+      await ref.read(firstLaunchProvider.notifier).complete();
     }
   }
 
-  void _saveKey() {
+  Future<void> _saveKey() async {
     final key = _controller.text.trim();
-    if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte gib einen API Key ein')),
-      );
-      return;
+    if (key.isNotEmpty) {
+      await ref.read(apiKeyProvider.notifier).setApiKey(key);
     }
-    ref.read(apiKeyProvider.notifier).setApiKey(key);
+    await ref.read(firstLaunchProvider.notifier).complete();
+  }
+
+  Future<void> _skip() async {
+    await ref.read(firstLaunchProvider.notifier).complete();
   }
 }

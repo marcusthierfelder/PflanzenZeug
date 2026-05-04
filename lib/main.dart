@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/api_key_wizard_screen.dart';
 import 'screens/plant_collection_screen.dart';
-import 'providers/api_key_provider.dart';
+import 'providers/first_launch_provider.dart';
 import 'services/database_service.dart';
 import 'services/notification_service.dart';
 
@@ -21,8 +21,6 @@ class PflanzenwartApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final apiKey = ref.watch(apiKeyProvider);
-
     return MaterialApp(
       title: 'Pflanzenwart Pro',
       debugShowCheckedModeBanner: false,
@@ -36,14 +34,11 @@ class PflanzenwartApp extends ConsumerWidget {
         brightness: Brightness.dark,
         useMaterial3: true,
       ),
-      home: apiKey.when(
-        data: (key) =>
-            key == null
-                ? const ApiKeyWizardScreen()
-                : const PlantCollectionScreen(),
-        loading: () => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+      home: ref.watch(firstLaunchProvider).when(
+        data: (isFirst) =>
+            isFirst ? const ApiKeyWizardScreen() : const PlantCollectionScreen(),
+        loading: () =>
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
         error: (_, _) => const PlantCollectionScreen(),
       ),
     );
