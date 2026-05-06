@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/api_key_provider.dart';
+import '../providers/ai_provider.dart';
 import 'qr_scanner_screen.dart';
 
 class ApiKeySettingsScreen extends ConsumerStatefulWidget {
@@ -27,14 +28,30 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final apiKey = ref.watch(apiKeyProvider);
-    final currentKey = apiKey.valueOrNull;
+    final selectedProvider = ref.watch(selectedAIProviderProvider).valueOrNull ?? AIProvider.claude;
+    final claudeKey = ref.watch(apiKeyProvider).valueOrNull;
+    final deepseekKey = ref.watch(deepseekApiKeyProvider).valueOrNull;
+    final currentKey = selectedProvider == AIProvider.deepseek ? deepseekKey : claudeKey;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('API Key')),
+      appBar: AppBar(title: const Text('KI-Einstellungen')),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          // Provider-Auswahl
+          Text('KI-Anbieter', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<AIProvider>(
+            segments: const [
+              ButtonSegment(value: AIProvider.claude, label: Text('Claude'), icon: Icon(Icons.auto_awesome)),
+              ButtonSegment(value: AIProvider.deepseek, label: Text('DeepSeek'), icon: Icon(Icons.psychology)),
+            ],
+            selected: {selectedProvider},
+            onSelectionChanged: (set) =>
+                ref.read(selectedAIProviderProvider.notifier).setProvider(set.first),
+          ),
+          const SizedBox(height: 24),
+
           // Status
           Card(
             child: Padding(
@@ -49,8 +66,8 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
                   Expanded(
                     child: Text(
                       currentKey != null
-                          ? 'Key gesetzt: ${_maskKey(currentKey)}'
-                          : 'Kein API Key hinterlegt',
+                          ? '${selectedProvider == AIProvider.deepseek ? 'DeepSeek' : 'Claude'} Key: ${_maskKey(currentKey)}'
+                          : 'Kein API Key für ${selectedProvider == AIProvider.deepseek ? 'DeepSeek' : 'Claude'} hinterlegt',
                       style: theme.textTheme.bodyMedium,
                     ),
                   ),
@@ -59,8 +76,17 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text('Key ändern', style: theme.textTheme.titleMedium),
+
+          Text('Key eingeben', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            selectedProvider == AIProvider.deepseek
+                ? 'API Key von platform.deepseek.com'
+                : 'API Key von console.anthropic.com',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
+
           if (Platform.isIOS || Platform.isAndroid) ...[
             FilledButton.icon(
               onPressed: _pasteFromClipboard,
@@ -72,9 +98,7 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
               onPressed: _scanQrCode,
               icon: const Icon(Icons.qr_code_scanner),
               label: const Text('QR-Code scannen'),
-              style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.secondary,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.secondary),
             ),
             const SizedBox(height: 12),
             TextButton(
@@ -88,7 +112,7 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
               controller: _controller,
               obscureText: _obscureText,
               decoration: InputDecoration(
-                hintText: 'sk-ant-...',
+                hintText: selectedProvider == AIProvider.deepseek ? 'sk-...' : 'sk-ant-...',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.key),
                 suffixIcon: IconButton(
@@ -104,6 +128,7 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
               label: const Text('Speichern'),
             ),
           ],
+
           if (currentKey != null) ...[
             const SizedBox(height: 32),
             const Divider(),
@@ -112,9 +137,7 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
               onPressed: _deleteKey,
               icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
               label: Text('Key löschen', style: TextStyle(color: theme.colorScheme.error)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: theme.colorScheme.error),
-              ),
+              style: OutlinedButton.styleFrom(side: BorderSide(color: theme.colorScheme.error)),
             ),
           ],
         ],
@@ -125,6 +148,22 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
   String _maskKey(String key) {
     if (key.length <= 12) return '••••••••';
     return '${key.substring(0, 8)}••••${key.substring(key.length - 4)}';
+  }
+
+  AIProvider get _selected =>
+      ref.read(selectedAIProviderProvider).valueOrNull ?? AIProvider.claude;
+
+  Future<void> _saveKey(String key) async {
+    if (_selected == AIProvider.deepseek) {
+      await ref.read(deepseekApiKeyProvider.notifier).setApiKey(key);
+    } else {
+      await ref.read(apiKeyProvider.notifier).setApiKey(key);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('API Key gespeichert')),
+      );
+    }
   }
 
   Future<void> _pasteFromClipboard() async {
@@ -138,26 +177,14 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
       }
       return;
     }
-    await ref.read(apiKeyProvider.notifier).setApiKey(text);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('API Key gespeichert')),
-      );
-    }
+    await _saveKey(text);
   }
 
   Future<void> _scanQrCode() async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const QrScannerScreen()),
     );
-    if (result != null && mounted) {
-      await ref.read(apiKeyProvider.notifier).setApiKey(result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('API Key gespeichert')),
-        );
-      }
-    }
+    if (result != null && mounted) await _saveKey(result);
   }
 
   Future<void> _saveManual() async {
@@ -168,13 +195,8 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
       );
       return;
     }
-    await ref.read(apiKeyProvider.notifier).setApiKey(key);
+    await _saveKey(key);
     _controller.clear();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('API Key gespeichert')),
-      );
-    }
   }
 
   Future<void> _deleteKey() async {
@@ -190,7 +212,11 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
       ),
     );
     if (confirmed == true && mounted) {
-      await ref.read(apiKeyProvider.notifier).clearApiKey();
+      if (_selected == AIProvider.deepseek) {
+        await ref.read(deepseekApiKeyProvider.notifier).clearApiKey();
+      } else {
+        await ref.read(apiKeyProvider.notifier).clearApiKey();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('API Key gelöscht')),

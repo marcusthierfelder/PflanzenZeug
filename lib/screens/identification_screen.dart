@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
-import '../providers/api_key_provider.dart';
+import '../providers/ai_provider.dart';
 import '../providers/database_provider.dart';
-import '../services/claude_service.dart';
+
 import '../services/database_service.dart';
 import 'diagnosis_screen.dart';
 
@@ -37,10 +37,11 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     });
 
     try {
-      final apiKey = ref.read(apiKeyProvider).value;
-      if (apiKey == null) throw Exception('Kein API Key');
+      
+      
 
-      final service = ClaudeService(apiKey);
+      final service = ref.read(aiServiceProvider);
+      if (service == null) throw Exception('Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
       final result = await service.identifyPlant(
         widget.images,
         isMixedPot: widget.isMixedPot,

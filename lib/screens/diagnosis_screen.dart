@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/api_key_provider.dart';
+import '../providers/ai_provider.dart';
 import '../providers/database_provider.dart';
 import '../providers/fertilizer_provider.dart';
-import '../services/claude_service.dart';
+
 import '../services/database_service.dart';
 import 'chat_screen.dart';
 
@@ -42,10 +42,11 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
     });
 
     try {
-      final apiKey = ref.read(apiKeyProvider).value;
-      if (apiKey == null) throw Exception('Kein API Key');
+      
+      
 
-      final service = ClaudeService(apiKey);
+      final service = ref.read(aiServiceProvider);
+      if (service == null) throw Exception('Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
       final fertilizers = ref.read(fertilizersProvider);
 
       // Kontext aus DB laden falls Pflanze verknüpft

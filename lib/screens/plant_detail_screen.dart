@@ -6,9 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import '../models/care_schedule.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
-import '../providers/api_key_provider.dart';
+import '../providers/ai_provider.dart';
 import '../providers/database_provider.dart';
-import '../services/claude_service.dart';
+
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/photo_carousel.dart';
@@ -84,10 +84,11 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
     final plant = ref.read(plantProvider(widget.plantId));
     if (plant == null) return;
 
-    final apiKey = ref.read(apiKeyProvider).value;
-    if (apiKey == null) return;
+    
+    
 
-    final service = ClaudeService(apiKey);
+    final service = ref.read(aiServiceProvider);
+      if (service == null) throw Exception('Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Pflege-Plan wird erstellt...')),

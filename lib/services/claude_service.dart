@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/fertilizer.dart';
+import 'ai_service.dart';
 
 const _defaultSystemPrompt =
     'Du bist ein Pflanzenexperte. Antworte immer auf Deutsch. '
     'Sei konkret und praxisnah.';
 
-class ClaudeService {
+class ClaudeService implements AIService {
   final String apiKey;
 
   ClaudeService(this.apiKey);
