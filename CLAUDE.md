@@ -13,7 +13,7 @@ The entire UI and all prompts are in **German**.
 ```bash
 flutter run              # Run on connected device/emulator
 flutter build apk        # Build Android APK
-flutter build ios        # Build iOS app
+flutter build ios --flavor Pflanzenwart  # Build iOS app (scheme wurde von Runner → Pflanzenwart umbenannt)
 flutter analyze          # Run static analysis (uses flutter_lints)
 flutter test             # Run all tests
 flutter test test/widget_test.dart  # Run a single test file
