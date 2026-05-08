@@ -49,6 +49,7 @@ class ClaudeService implements AIService {
         'Empfehle wenn möglich einen der vorhandenen Dünger.';
   }
 
+  @override
   Future<String> identifyPlant(List<File> images, {bool isMixedPot = false}) async {
     final imageContents = _encodeImages(images);
 
@@ -79,6 +80,7 @@ class ClaudeService implements AIService {
     return _callClaude(imageContents);
   }
 
+  @override
   Future<String> diagnosePlant({
     required List<File> images,
     required String plantName,
@@ -158,6 +160,7 @@ class ClaudeService implements AIService {
     return _callClaude(imageContents);
   }
 
+  @override
   Future<String> identifyFertilizer(List<File> images) async {
     final imageContents = _encodeImages(images);
 
@@ -175,6 +178,7 @@ class ClaudeService implements AIService {
     return _callClaude(imageContents);
   }
 
+  @override
   Future<String> askQuestion({
     required List<Map<String, dynamic>> conversationHistory,
     required String question,
@@ -196,6 +200,7 @@ class ClaudeService implements AIService {
     return _callClaudeMessages(messages, systemPrompt: systemPrompt);
   }
 
+  @override
   Future<String> suggestCareSchedule({
     required String plantName,
     String? identificationResult,
