@@ -28,9 +28,9 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final selectedProvider = ref.watch(selectedAIProviderProvider).valueOrNull ?? AIProvider.claude;
-    final claudeKey = ref.watch(apiKeyProvider).valueOrNull;
-    final deepseekKey = ref.watch(deepseekApiKeyProvider).valueOrNull;
+    final selectedProvider = ref.watch(selectedAIProviderProvider).value ?? AIProvider.claude;
+    final claudeKey = ref.watch(apiKeyProvider).value;
+    final deepseekKey = ref.watch(deepseekApiKeyProvider).value;
     final currentKey = selectedProvider == AIProvider.deepseek ? deepseekKey : claudeKey;
 
     return Scaffold(
@@ -151,7 +151,7 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
   }
 
   AIProvider get _selected =>
-      ref.read(selectedAIProviderProvider).valueOrNull ?? AIProvider.claude;
+      ref.read(selectedAIProviderProvider).value ?? AIProvider.claude;
 
   Future<void> _saveKey(String key) async {
     if (_selected == AIProvider.deepseek) {

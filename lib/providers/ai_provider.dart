@@ -62,14 +62,14 @@ class DeepSeekApiKeyNotifier extends AsyncNotifier<String?> {
 // --- Aktiver AI-Service ---
 
 final aiServiceProvider = Provider<AIService?>((ref) {
-  final selected = ref.watch(selectedAIProviderProvider).valueOrNull;
+  final selected = ref.watch(selectedAIProviderProvider).value;
   switch (selected) {
     case AIProvider.deepseek:
-      final key = ref.watch(deepseekApiKeyProvider).valueOrNull;
+      final key = ref.watch(deepseekApiKeyProvider).value;
       return key != null ? DeepSeekService(key) : null;
     case AIProvider.claude:
     case null:
-      final key = ref.watch(apiKeyProvider).valueOrNull;
+      final key = ref.watch(apiKeyProvider).value;
       return key != null ? ClaudeService(key) : null;
   }
 });

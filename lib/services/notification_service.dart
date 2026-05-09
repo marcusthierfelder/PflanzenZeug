@@ -29,7 +29,7 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(settings);
+    await _plugin.initialize(settings: settings);
     _initialized = true;
   }
 
@@ -72,23 +72,21 @@ class NotificationService {
     if (scheduledDate.isBefore(now)) {
       // Bereits überfällig: sofortige Benachrichtigung
       await _plugin.show(
-        care.id.hashCode,
-        _title(care.type),
-        '$plantName: ${_body(care.type)}',
-        _details,
+        id: care.id.hashCode,
+        title: _title(care.type),
+        body: '$plantName: ${_body(care.type)}',
+        notificationDetails: _details,
       );
       return;
     }
 
     await _plugin.zonedSchedule(
-      care.id.hashCode,
-      _title(care.type),
-      '$plantName: ${_body(care.type)}',
-      scheduledDate,
-      _details,
+      id: care.id.hashCode,
+      title: _title(care.type),
+      body: '$plantName: ${_body(care.type)}',
+      scheduledDate: scheduledDate,
+      notificationDetails: _details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
     );
   }
 
