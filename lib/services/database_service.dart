@@ -42,14 +42,23 @@ class DatabaseService {
 
   // --- Images ---
 
+  /// Speichert ein Bild und gibt nur den Dateinamen zurück (nicht den vollen Pfad),
+  /// damit der Pfad bei App-Neuinstallation (neuer Container-UUID) rekonstruierbar bleibt.
   Future<String> persistImage(File source) async {
     final id = generateId();
     final ext = source.path.split('.').last;
-    final dest = '${_imageDir.path}/$id.$ext';
+    final filename = '$id.$ext';
+    final dest = '${_imageDir.path}/$filename';
     await source.copy(dest);
-    // Auch in iCloud speichern (fire-and-forget)
     ICloudService.instance.saveImage(id, File(dest)).ignore();
-    return dest;
+    return filename;
+  }
+
+  /// Wandelt einen gespeicherten Wert (Dateiname ODER alter absoluter Pfad) in den
+  /// aktuell gültigen absoluten Pfad um. Behebt Pfadfehler nach App-Neuinstallation.
+  String resolveImagePath(String stored) {
+    final filename = stored.contains('/') ? stored.split('/').last : stored;
+    return '${_imageDir.path}/$filename';
   }
 
   bool _isRestoring = false;
@@ -103,9 +112,9 @@ class DatabaseService {
         .where((k) => _photosBox.get(k)?['plantId'] == id)
         .toList();
     for (final key in photoKeys) {
-      final path = _photosBox.get(key)?['filePath'] as String?;
-      if (path != null) {
-        final file = File(path);
+      final stored = _photosBox.get(key)?['filePath'] as String?;
+      if (stored != null) {
+        final file = File(resolveImagePath(stored));
         if (file.existsSync()) file.deleteSync();
       }
       await _photosBox.delete(key);
@@ -182,9 +191,9 @@ class DatabaseService {
   Future<void> deleteFertilizer(String id) async {
     final fert = _fertilizersBox.get(id);
     if (fert != null) {
-      final path = fert['photoPath'] as String?;
-      if (path != null) {
-        final file = File(path);
+      final stored = fert['photoPath'] as String?;
+      if (stored != null) {
+        final file = File(resolveImagePath(stored));
         if (file.existsSync()) file.deleteSync();
       }
     }

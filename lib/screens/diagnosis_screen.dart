@@ -67,11 +67,12 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
         final photos = DatabaseService.instance
             .getPhotosForPlant(widget.plantId!);
         // Ältere Fotos als Kontext (max 3, nicht die aktuellen)
+        final db = DatabaseService.instance;
         final currentPaths = widget.images.map((f) => f.path).toSet();
         final older = photos
-            .where((p) => !currentPaths.contains(p.filePath))
+            .where((p) => !currentPaths.contains(db.resolveImagePath(p.filePath)))
             .take(3)
-            .map((p) => File(p.filePath))
+            .map((p) => File(db.resolveImagePath(p.filePath)))
             .where((f) => f.existsSync())
             .toList();
         if (older.isNotEmpty) historicalImages = older;

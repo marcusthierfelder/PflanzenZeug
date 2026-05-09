@@ -18,8 +18,10 @@ class PhotoCarousel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final validPhotos =
-        photos.where((p) => File(p.filePath).existsSync()).toList();
+    final db = DatabaseService.instance;
+    final validPhotos = photos
+        .where((p) => File(db.resolveImagePath(p.filePath)).existsSync())
+        .toList();
     if (validPhotos.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
@@ -54,7 +56,7 @@ class PhotoCarousel extends ConsumerWidget {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: Image.file(
-                          File(photo.filePath),
+                          File(db.resolveImagePath(photo.filePath)),
                           width: 160,
                           fit: BoxFit.cover,
                         ),

@@ -97,7 +97,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
       final existingPhotos = db.getPhotosForPlant(plant.id);
       final historicalImages = existingPhotos
           .take(3)
-          .map((p) => File(p.filePath))
+          .map((p) => File(db.resolveImagePath(p.filePath)))
           .where((f) => f.existsSync())
           .toList();
 

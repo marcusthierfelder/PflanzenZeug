@@ -56,7 +56,7 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => DiagnosisScreen(
-          images: photos.map((p) => File(p.filePath)).toList(),
+          images: photos.map((p) => File(DatabaseService.instance.resolveImagePath(p.filePath))).toList(),
           plantName: plant.speciesName ?? plant.nickname,
           plantId: widget.plantId,
         ),

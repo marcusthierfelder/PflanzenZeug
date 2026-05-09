@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/database_provider.dart';
+import '../services/database_service.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import 'home_screen.dart';
@@ -169,8 +170,9 @@ class _PlantCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final db = DatabaseService.instance;
     final photos = ref.watch(plantPhotosProvider(plant.id))
-        .where((p) => File(p.filePath).existsSync())
+        .where((p) => File(db.resolveImagePath(p.filePath)).existsSync())
         .toList();
     final theme = Theme.of(context);
 
@@ -188,7 +190,7 @@ class _PlantCard extends ConsumerWidget {
             Expanded(
               child: photos.isNotEmpty
                   ? Image.file(
-                      File(_coverPhoto(plant, photos).filePath),
+                      File(db.resolveImagePath(_coverPhoto(plant, photos).filePath)),
                       fit: BoxFit.cover,
                     )
                   : Container(

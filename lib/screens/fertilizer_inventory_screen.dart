@@ -57,7 +57,7 @@ class FertilizerInventoryScreen extends ConsumerWidget {
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: Image.file(
-                              File(fert.photoPath!),
+                              File(DatabaseService.instance.resolveImagePath(fert.photoPath!)),
                               width: 48,
                               height: 48,
                               fit: BoxFit.cover,
