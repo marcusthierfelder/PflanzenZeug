@@ -191,10 +191,18 @@ class DatabaseService {
   Future<void> deleteFertilizer(String id) async {
     final fert = _fertilizersBox.get(id);
     if (fert != null) {
-      final stored = fert['photoPath'] as String?;
-      if (stored != null) {
-        final file = File(resolveImagePath(stored));
-        if (file.existsSync()) file.deleteSync();
+      final paths = fert['photoPaths'];
+      if (paths != null) {
+        for (final stored in (paths as List).cast<String>()) {
+          final file = File(resolveImagePath(stored));
+          if (file.existsSync()) file.deleteSync();
+        }
+      } else {
+        final stored = fert['photoPath'] as String?;
+        if (stored != null) {
+          final file = File(resolveImagePath(stored));
+          if (file.existsSync()) file.deleteSync();
+        }
       }
     }
     await _fertilizersBox.delete(id);

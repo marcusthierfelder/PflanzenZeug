@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/fertilizer.dart';
-import '../providers/ai_provider.dart';
-
 import '../services/database_service.dart';
 
 class AddFertilizerScreen extends ConsumerStatefulWidget {
@@ -18,13 +16,8 @@ class AddFertilizerScreen extends ConsumerStatefulWidget {
 class _AddFertilizerScreenState extends ConsumerState<AddFertilizerScreen> {
   final _picker = ImagePicker();
   final _nameController = TextEditingController();
-  File? _image;
-  String? _analysis;
-  String? _error;
-  bool _loading = false;
-  String _detectedName = '';
-  String? _detectedBrand;
-  String? _detectedNpk;
+  final List<File> _images = [];
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -32,63 +25,25 @@ class _AddFertilizerScreenState extends ConsumerState<AddFertilizerScreen> {
     super.dispose();
   }
 
-  Future<void> _takePhoto() async {
+  Future<void> _addPhoto(ImageSource source) async {
+    final picked = await _picker.pickMultiImage(
+      imageQuality: 85,
+      maxWidth: 1920,
+    );
+    if (picked.isEmpty) return;
+    setState(() {
+      _images.addAll(picked.map((x) => File(x.path)));
+    });
+  }
+
+  Future<void> _addFromCamera() async {
     final photo = await _picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
       maxWidth: 1920,
     );
     if (photo != null) {
-      setState(() => _image = File(photo.path));
-      _analyze();
-    }
-  }
-
-  Future<void> _pickFromGallery() async {
-    final photo = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-      maxWidth: 1920,
-    );
-    if (photo != null) {
-      setState(() => _image = File(photo.path));
-      _analyze();
-    }
-  }
-
-  Future<void> _analyze() async {
-    if (_image == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      
-      
-
-      final service = ref.read(aiServiceProvider);
-      if (service == null) throw Exception('Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
-      final result = await service.identifyFertilizer([_image!]);
-      setState(() {
-        _analysis = result;
-        // Try to extract name from first line
-        final lines = result.split('\n');
-        if (lines.isNotEmpty) {
-          _detectedName = lines.first.replaceAll(RegExp(r'[*#]'), '').trim();
-          _nameController.text = _detectedName;
-        }
-        // Try to find NPK
-        final npkMatch =
-            RegExp(r'(\d+[-–]\d+[-–]\d+)').firstMatch(result);
-        if (npkMatch != null) {
-          _detectedNpk = npkMatch.group(1)?.replaceAll('–', '-');
-        }
-      });
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      setState(() => _loading = false);
+      setState(() => _images.add(File(photo.path)));
     }
   }
 
@@ -96,123 +51,178 @@ class _AddFertilizerScreenState extends ConsumerState<AddFertilizerScreen> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
 
-    final db = DatabaseService.instance;
-    String? photoPath;
-    if (_image != null) {
-      photoPath = await db.persistImage(_image!);
+    setState(() => _saving = true);
+    try {
+      final db = DatabaseService.instance;
+      final persistedPaths = <String>[];
+      for (final img in _images) {
+        persistedPaths.add(await db.persistImage(img));
+      }
+
+      await db.saveFertilizer(Fertilizer(
+        id: db.generateId(),
+        name: name,
+        photoPaths: persistedPaths,
+        createdAt: DateTime.now(),
+      ));
+
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-
-    await db.saveFertilizer(Fertilizer(
-      id: db.generateId(),
-      name: name,
-      brand: _detectedBrand,
-      description: _analysis,
-      npkRatio: _detectedNpk,
-      photoPath: photoPath,
-      createdAt: DateTime.now(),
-    ));
-
-    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final canSave = _nameController.text.trim().isNotEmpty && !_saving;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dünger hinzufügen')),
+      appBar: AppBar(
+        title: const Text('Dünger hinzufügen'),
+        actions: [
+          TextButton(
+            onPressed: canSave ? _save : null,
+            child: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Speichern'),
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_image == null) ...[
-              Text(
-                'Fotografiere deinen Dünger',
-                style: theme.textTheme.titleMedium,
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Name *',
+                hintText: 'z.B. Tomatendünger, Flüssigdünger',
+                border: OutlineInputBorder(),
               ),
-              const SizedBox(height: 16),
-              Row(
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 20),
+            Text('Fotos', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 110,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _takePhoto,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Kamera'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickFromGallery,
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Galerie'),
-                    ),
+                  ..._images.asMap().entries.map((entry) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                entry.value,
+                                width: 110,
+                                height: 110,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: GestureDetector(
+                                onTap: () => setState(
+                                    () => _images.removeAt(entry.key)),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: const Icon(Icons.close,
+                                      size: 16, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+                  _AddPhotoTile(
+                    onCamera: _addFromCamera,
+                    onGallery: () => _addPhoto(ImageSource.gallery),
                   ),
                 ],
               ),
-            ],
-            if (_image != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(_image!, height: 200, fit: BoxFit.cover),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Die KI-Analyse startet später über „Alle analysieren" in der Übersicht.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddPhotoTile extends StatelessWidget {
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+
+  const _AddPhotoTile({required this.onCamera, required this.onGallery});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: () => showModalBottomSheet(
+        context: context,
+        builder: (_) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Kamera'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onCamera();
+                },
               ),
-              const SizedBox(height: 16),
-            ],
-            if (_loading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('Dünger wird analysiert...'),
-                    ],
-                  ),
-                ),
-              ),
-            if (_error != null) ...[
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(_error!,
-                      style: TextStyle(color: theme.colorScheme.error)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _analyze,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Nochmal versuchen'),
-              ),
-            ],
-            if (_analysis != null) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SelectableText(
-                    _analysis!,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _save,
-                icon: const Icon(Icons.check),
-                label: const Text('Speichern'),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Galerie'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onGallery();
+                },
               ),
             ],
+          ),
+        ),
+      ),
+      child: Container(
+        width: 110,
+        height: 110,
+        decoration: BoxDecoration(
+          border: Border.all(
+              color: theme.colorScheme.outline.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(8),
+          color: theme.colorScheme.surfaceContainerHighest,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_a_photo_outlined,
+                color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 4),
+            Text('Foto',
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ],
         ),
       ),

@@ -52,10 +52,10 @@ class KeychainBackupService {
       }
     }
     for (final fert in fertilizers) {
-      if (fert.photoPath != null) {
-        final file = _fileIfExists(fert.photoPath!);
+      for (final path in fert.photoPaths) {
+        final file = _fileIfExists(path);
         if (file != null) {
-          icloud.saveImage('fert_${fert.id}', file).ignore();
+          icloud.saveImage('fert_${fert.id}_$path', file).ignore();
         }
       }
     }
