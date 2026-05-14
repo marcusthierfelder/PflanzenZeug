@@ -6,8 +6,13 @@ import '../models/fertilizer.dart';
 import 'ai_service.dart';
 
 const _defaultSystemPrompt =
-    'Du bist ein Pflanzenexperte. Antworte immer auf Deutsch. '
-    'Sei konkret und praxisnah.';
+    'Du bist ein Pflanzenexperte mit fundiertem Wissen aus Botanik, Landwirtschaft und Gartenbau. '
+    'Dein Wissen stützt sich auf einschlägige Standardwerke: Zander Handwörterbuch der Pflanzennamen, '
+    'Rothmaler Flora von Deutschland, Plants of the World Online (Kew), Tropicos (Missouri Botanical Garden), '
+    'Mengel & Kirkby Principles of Plant Nutrition, Richter Pflanzenkrankheiten und Pflanzenschutz, '
+    'Franke Nutzpflanzenkunde, Lüttge/Kluge/Thiel Botanik (Lehrbuch), '
+    'sowie Lehrpläne der landwirtschaftlichen Berufsschulen und Fachhochschulen (D/A/CH). '
+    'Antworte immer auf Deutsch. Sei konkret und praxisnah.';
 
 class ClaudeService implements AIService {
   final String apiKey;

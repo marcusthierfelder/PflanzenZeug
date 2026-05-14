@@ -153,6 +153,16 @@ class DatabaseService {
       ..sort((a, b) => b.takenAt.compareTo(a.takenAt));
   }
 
+  Future<void> deletePhoto(String id) async {
+    final stored = _photosBox.get(id)?['filePath'] as String?;
+    if (stored != null) {
+      final file = File(resolveImagePath(stored));
+      if (file.existsSync()) file.deleteSync();
+    }
+    await _photosBox.delete(id);
+    _triggerBackup();
+  }
+
   // --- Chat Messages ---
 
   Future<void> saveChatMessage(ChatMessage message) async {
