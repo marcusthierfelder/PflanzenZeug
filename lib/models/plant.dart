@@ -8,6 +8,7 @@ class Plant {
   bool isMixedPot;
   String? coverPhotoId;
   String? identificationResult;
+  double? identificationConfidence;
   String? diagnosisResult;
   final DateTime createdAt;
   DateTime updatedAt;
@@ -23,6 +24,7 @@ class Plant {
     this.isMixedPot = false,
     this.coverPhotoId,
     this.identificationResult,
+    this.identificationConfidence,
     this.diagnosisResult,
     required this.createdAt,
     required this.updatedAt,
@@ -39,6 +41,7 @@ class Plant {
         'isMixedPot': isMixedPot,
         'coverPhotoId': coverPhotoId,
         'identificationResult': identificationResult,
+        'identificationConfidence': identificationConfidence,
         'diagnosisResult': diagnosisResult,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
@@ -55,6 +58,7 @@ class Plant {
         isMixedPot: json['isMixedPot'] as bool? ?? false,
         coverPhotoId: json['coverPhotoId'] as String?,
         identificationResult: json['identificationResult'] as String?,
+        identificationConfidence: (json['identificationConfidence'] as num?)?.toDouble(),
         diagnosisResult: json['diagnosisResult'] as String?,
         createdAt: DateTime.parse(json['createdAt'] as String),
         updatedAt: DateTime.parse(json['updatedAt'] as String),

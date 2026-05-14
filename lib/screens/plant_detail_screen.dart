@@ -14,6 +14,7 @@ import '../services/notification_service.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/care_section.dart';
 import 'diagnosis_screen.dart';
+import 'identification_screen.dart';
 import 'chat_screen.dart';
 
 class PlantDetailScreen extends ConsumerStatefulWidget {
@@ -59,6 +60,27 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
           images: photos.map((p) => File(DatabaseService.instance.resolveImagePath(p.filePath))).toList(),
           plantName: plant.speciesName ?? plant.nickname,
           plantId: widget.plantId,
+        ),
+      ),
+    );
+  }
+
+  void _startReIdentification() {
+    final plant = ref.read(plantProvider(widget.plantId));
+    final photos = ref.read(plantPhotosProvider(widget.plantId));
+    if (plant == null || photos.isEmpty) return;
+
+    final identificationPhotos = photos.where((p) => p.purpose == 'identification').toList();
+    final photosToUse = identificationPhotos.isNotEmpty ? identificationPhotos : photos;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => IdentificationScreen(
+          images: photosToUse
+              .map((p) => File(DatabaseService.instance.resolveImagePath(p.filePath)))
+              .toList(),
+          isMixedPot: plant.isMixedPot,
+          existingPlantId: widget.plantId,
         ),
       ),
     );
@@ -204,6 +226,12 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
                     label: const Text('Neue Diagnose'),
                   ),
                   const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: photos.isNotEmpty ? _startReIdentification : null,
+                    icon: const Icon(Icons.manage_search),
+                    label: const Text('Neu bestimmen'),
+                  ),
+                  const SizedBox(height: 8),
                   FilledButton.icon(
                     onPressed: _openChat,
                     icon: const Icon(Icons.chat),
@@ -323,7 +351,18 @@ class _PlantInfoCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (plant.speciesName != null) ...[
-              Text(plant.speciesName!, style: theme.textTheme.titleMedium),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(plant.speciesName!, style: theme.textTheme.titleMedium),
+                  ),
+                  if (plant.identificationConfidence != null) ...[
+                    const SizedBox(width: 8),
+                    _ConfidenceBadge(confidence: plant.identificationConfidence!.round()),
+                  ],
+                ],
+              ),
               if (plant.scientificName != null)
                 Text(
                   plant.scientificName!,
@@ -365,6 +404,39 @@ class _InfoRow extends StatelessWidget {
         const SizedBox(width: 4),
         Text(text, style: theme.textTheme.bodyMedium),
       ],
+    );
+  }
+}
+
+class _ConfidenceBadge extends StatelessWidget {
+  final int confidence;
+  const _ConfidenceBadge({required this.confidence});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = confidence >= 80
+        ? Colors.green
+        : confidence >= 60
+            ? Colors.orange
+            : Colors.red;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.verified, size: 12, color: color),
+          const SizedBox(width: 3),
+          Text(
+            '$confidence%',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 }

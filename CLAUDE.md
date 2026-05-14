@@ -40,3 +40,7 @@ flutter test test/widget_test.dart  # Run a single test file
 - `http` — raw HTTP for Claude API (no Anthropic SDK)
 - `shared_preferences` — local API key storage
 - `flutter_riverpod` — state management
+
+### Umgang mit TODO.md
+
+* immer wenn da was drin steht bitte bei den nächsten tätigkeiten abarbeiten und auf der datei dann entfernen!

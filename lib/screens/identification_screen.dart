@@ -12,11 +12,13 @@ import 'diagnosis_screen.dart';
 class IdentificationScreen extends ConsumerStatefulWidget {
   final List<File> images;
   final bool isMixedPot;
+  final String? existingPlantId;
 
   const IdentificationScreen({
     super.key,
     required this.images,
     this.isMixedPot = false,
+    this.existingPlantId,
   });
 
   @override
@@ -59,15 +61,32 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
 
   Future<void> _autoSave(String result) async {
     final db = DatabaseService.instance;
-    final plantId = db.generateId();
     final now = DateTime.now();
 
-    // Parse structured name from Claude response
     final nameMatch = RegExp(r'NAME:\s*(.+)').firstMatch(result);
     final sciMatch = RegExp(r'WISSENSCHAFTLICH:\s*(.+)').firstMatch(result);
+    final confidenceMatch = RegExp(r'SICHERHEIT:\s*(\d+)').firstMatch(result);
     final name = nameMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim() ?? '';
     final scientificName = sciMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim();
+    final confidence = confidenceMatch != null ? double.tryParse(confidenceMatch.group(1)!) : null;
 
+    if (widget.existingPlantId != null) {
+      final existing = ref.read(plantProvider(widget.existingPlantId!));
+      if (existing != null) {
+        existing.speciesName = name.isNotEmpty ? name : existing.speciesName;
+        existing.scientificName = scientificName ?? existing.scientificName;
+        existing.identificationResult = result;
+        existing.identificationConfidence = confidence;
+        existing.updatedAt = now;
+        await db.savePlant(existing);
+        ref.invalidate(plantProvider(widget.existingPlantId!));
+        ref.invalidate(plantsProvider);
+        setState(() => _savedPlantId = widget.existingPlantId);
+        return;
+      }
+    }
+
+    final plantId = db.generateId();
     final plant = Plant(
       id: plantId,
       nickname: name.isNotEmpty ? name : (widget.isMixedPot ? 'Mischtopf' : 'Meine Pflanze'),
@@ -75,6 +94,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
       scientificName: scientificName,
       isMixedPot: widget.isMixedPot,
       identificationResult: result,
+      identificationConfidence: confidence,
       createdAt: now,
       updatedAt: now,
     );
@@ -175,33 +195,41 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
             ],
 
             if (_result != null) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.eco, color: theme.colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Ergebnis',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+              Builder(builder: (context) {
+                final confidenceMatch = RegExp(r'SICHERHEIT:\s*(\d+)').firstMatch(_result!);
+                final confidence = confidenceMatch != null ? int.tryParse(confidenceMatch.group(1)!) : null;
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.eco, color: theme.colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Ergebnis',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      SelectableText(
-                        _result!,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
+                            if (confidence != null) ...[
+                              const SizedBox(width: 8),
+                              _ConfidenceBadge(confidence: confidence),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SelectableText(
+                          _result!,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              }),
               const SizedBox(height: 16),
               if (_savedPlantId != null)
                 Card(
@@ -243,6 +271,39 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ConfidenceBadge extends StatelessWidget {
+  final int confidence;
+  const _ConfidenceBadge({required this.confidence});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = confidence >= 80
+        ? Colors.green
+        : confidence >= 60
+            ? Colors.orange
+            : Colors.red;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.verified, size: 12, color: color),
+          const SizedBox(width: 3),
+          Text(
+            '$confidence%',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
