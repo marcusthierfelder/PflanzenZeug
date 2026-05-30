@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 """Zeigt einen QR-Code für den übergebenen API-Key an.
 
-Usage: ./tools/show_qr.py <api-key>
+Usage: python3 tools/show_qr.py <api-key>
 
-Öffnet den QR-Code als Bild in Preview.
+Öffnet den QR-Code als Bild in Preview (macOS) bzw. dem Standard-Bildbetrachter.
+
+Voraussetzung: Abhängigkeiten installieren (einmalig):
+    pip install -r tools/requirements.txt
 """
 
-import os
 import subprocess
 import sys
 import tempfile
 
-# Activate the bundled venv so qrcode is importable regardless of how the script is called
-venv_site = os.path.join(os.path.dirname(__file__), ".venv", "lib")
-for d in os.listdir(venv_site):
-    sp = os.path.join(venv_site, d, "site-packages")
-    if os.path.isdir(sp):
-        sys.path.insert(0, sp)
-        break
+try:
+    import qrcode
+except ImportError:
+    print(
+        "Fehler: Das Paket 'qrcode' ist nicht installiert.\n"
+        "Bitte ausführen: pip install -r tools/requirements.txt",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
-import qrcode
 
-
-def main():
+def main() -> None:
     if len(sys.argv) != 2:
-        print("Usage: python3 show_qr.py <api-key>")
+        print("Usage: python3 show_qr.py <api-key>", file=sys.stderr)
         sys.exit(1)
 
     key = sys.argv[1]
@@ -33,7 +35,11 @@ def main():
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         img.save(f, "PNG")
-        subprocess.run(["open", f.name])
+        tmp_path = f.name
+
+    # 'open' funktioniert auf macOS; auf Linux wäre 'xdg-open' die Alternative
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    subprocess.run([opener, tmp_path], check=True)
 
 
 if __name__ == "__main__":

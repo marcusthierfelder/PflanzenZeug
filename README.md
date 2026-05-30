@@ -16,6 +16,7 @@ Flutter-App zur Pflanzenerkennung, Gesundheitsdiagnose und Pflege-Begleitung. Fo
 
 - Flutter SDK (getestet mit Flutter 3.x)
 - Claude API Key von [console.anthropic.com](https://console.anthropic.com)
+- Python 3.8+ (nur für das QR-Code-Hilfsskript unter `tools/`)
 
 ## Setup
 
@@ -25,6 +26,29 @@ flutter run
 ```
 
 Beim ersten Start fragt die App nach deinem Claude API Key. Der Key wird lokal auf dem Gerät gespeichert.
+
+### QR-Code-Tool (optional)
+
+Das Hilfsskript `tools/show_qr.py` erzeugt einen QR-Code für den API-Key, damit er bequem auf ein Mobilgerät übertragen werden kann.
+
+**Einmalige Installation der Python-Abhängigkeit:**
+
+```bash
+# Empfohlen: virtuelle Umgebung anlegen
+python3 -m venv tools/.venv
+source tools/.venv/bin/activate   # macOS/Linux
+# tools\.venv\Scripts\activate   # Windows
+
+pip install -r tools/requirements.txt
+```
+
+**Verwendung:**
+
+```bash
+python3 tools/show_qr.py <dein-api-key>
+```
+
+> **Hinweis:** `tools/.venv/` ist in `.gitignore` eingetragen und wird nicht ins Repository eingecheckt. Die einzige versionierte Abhängigkeitsdatei ist `tools/requirements.txt`.
 
 ## Projektstruktur
 
