@@ -58,7 +58,10 @@ class ClaudeService implements AIService {
 
   @override
   Future<String> identifyPlant(
-      List<File> images, {bool isMixedPot = false}) async {
+    List<File> images, {
+    bool isMixedPot = false,
+    String? previousIdentification,
+  }) async {
     final imageContents = await _encodeImages(images);
 
     final promptText = PlantCareSchema.buildIdentifyPrompt(
@@ -66,7 +69,19 @@ class ClaudeService implements AIService {
       isMixedPot: isMixedPot,
     );
 
-    imageContents.add({'type': 'text', 'text': promptText});
+    // Re-Identifikations-Kontext anhängen wenn Pflanze bereits bekannt ist
+    final fullPrompt = previousIdentification != null
+        ? '$promptText\n\n'
+          '⚠️ RE-IDENTIFIKATION: Diese Pflanze wurde zuvor als '
+          '**$previousIdentification** identifiziert. '
+          'Bestätige oder widerlege diese Bestimmung anhand der '
+          'diagnostischen Merkmale auf den Fotos. '
+          'Wechsele die Art nur bei klarem Widerspruch zu den sichtbaren '
+          'Merkmalen. Begründe deine Entscheidung im Feld '
+          '"diagnostic_notes".'
+        : promptText;
+
+    imageContents.add({'type': 'text', 'text': fullPrompt});
 
     // Assistant-Prefill-Trick: Claude beginnt mit `{` → erzwingt JSON-Start
     return _callClaudeMessages(
@@ -228,6 +243,8 @@ class ClaudeService implements AIService {
         body: jsonEncode({
           'model': 'claude-sonnet-4-20250514',
           'max_tokens': maxTokens,
+          'temperature': 0,
+          'top_p': 0.1,
           'system': systemPrompt ?? _defaultSystemPrompt,
           'messages': messages,
         }),

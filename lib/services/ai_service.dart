@@ -4,7 +4,16 @@ import '../models/fertilizer.dart';
 import '../services/parsers/parse_result.dart';
 
 abstract class AIService {
-  Future<String> identifyPlant(List<File> images, {bool isMixedPot = false});
+  /// Identifiziert eine Pflanze anhand von [images].
+  ///
+  /// [previousIdentification] – wissenschaftlicher Name einer bereits
+  /// dokumentierten Pflanze. Wenn übergeben, enthält der Prompt den
+  /// Re-Identifikations-Kontext, der Drift verhindert.
+  Future<String> identifyPlant(
+    List<File> images, {
+    bool isMixedPot = false,
+    String? previousIdentification,
+  });
 
   /// Analysiert Bilder und gibt ein strukturiertes [DiagnosisResult] zurück.
   ///

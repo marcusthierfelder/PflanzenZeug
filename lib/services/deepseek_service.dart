@@ -48,7 +48,10 @@ class DeepSeekService implements AIService {
 
   @override
   Future<String> identifyPlant(
-      List<File> images, {bool isMixedPot = false}) async {
+    List<File> images, {
+    bool isMixedPot = false,
+    String? previousIdentification,
+  }) async {
     final content = <Map<String, dynamic>>[...await _encodeImages(images)];
 
     final promptText = PlantCareSchema.buildIdentifyPromptDeepSeek(
@@ -56,7 +59,19 @@ class DeepSeekService implements AIService {
       isMixedPot: isMixedPot,
     );
 
-    content.add({'type': 'text', 'text': promptText});
+    // Re-Identifikations-Kontext anhängen wenn Pflanze bereits bekannt ist
+    final fullPrompt = previousIdentification != null
+        ? '$promptText\n\n'
+          '⚠️ RE-IDENTIFIKATION: Diese Pflanze wurde zuvor als '
+          '**$previousIdentification** identifiziert. '
+          'Bestätige oder widerlege diese Bestimmung anhand der '
+          'diagnostischen Merkmale auf den Fotos. '
+          'Wechsele die Art nur bei klarem Widerspruch zu den sichtbaren '
+          'Merkmalen. Begründe deine Entscheidung im Feld '
+          '"diagnostic_notes".'
+        : promptText;
+
+    content.add({'type': 'text', 'text': fullPrompt});
     // DeepSeek unterstützt response_format: json_object nativ
     return _call(
       [{'role': 'user', 'content': content}],
@@ -178,6 +193,7 @@ class DeepSeekService implements AIService {
     final body = <String, dynamic>{
       'model': 'deepseek-chat',
       'max_tokens': maxTokens,
+      'temperature': 0,
       'messages': includeSystem
           ? [
               {'role': 'system', 'content': _defaultSystemPrompt},

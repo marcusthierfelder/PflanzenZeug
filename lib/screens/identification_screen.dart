@@ -31,6 +31,24 @@ class IdentificationScreen extends ConsumerStatefulWidget {
       _IdentificationScreenState();
 }
 
+/// Hält die abweichende Einschätzung des Modells im Vergleich zur gespeicherten Art.
+class _SpeciesConflict {
+  /// Bisheriger (gespeicherter) wissenschaftlicher Name.
+  final String previousScientificName;
+
+  /// Neu vom Modell vorgeschlagener wissenschaftlicher Name.
+  final String newScientificName;
+
+  /// Neu vom Modell vorgeschlagener Anzeigename.
+  final String newDisplayName;
+
+  const _SpeciesConflict({
+    required this.previousScientificName,
+    required this.newScientificName,
+    required this.newDisplayName,
+  });
+}
+
 class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
   /// Roher LLM-Output (String).
   String? _rawResult;
@@ -41,6 +59,9 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
   String? _error;
   bool _loading = false;
   String? _savedPlantId;
+
+  /// Gesetzt wenn das Modell eine andere Art nennt als bisher gespeichert.
+  _SpeciesConflict? _speciesConflict;
 
   // ── Shortcuts auf geparste Daten ──────────────────────────────────────────
   PlantIdentificationResult? get _identified =>
@@ -53,6 +74,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
       _error = null;
       _rawResult = null;
       _parseResult = null;
+      _speciesConflict = null;
     });
 
     try {
@@ -62,9 +84,18 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
             'Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
       }
 
+      // Re-Identifikations-Kontext: wissenschaftlichen Namen der gespeicherten
+      // Pflanze laden damit das Modell stabilisiert werden kann.
+      String? previousScientificName;
+      if (widget.existingPlantId != null) {
+        final existing = ref.read(plantProvider(widget.existingPlantId!));
+        previousScientificName = existing?.scientificName;
+      }
+
       final raw = await service.identifyPlant(
         widget.images,
         isMixedPot: widget.isMixedPot,
+        previousIdentification: previousScientificName,
       );
 
       final parsed = CareProfileParser.parse(raw);
@@ -74,7 +105,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
         _parseResult = parsed;
       });
 
-      await _autoSave(raw, parsed);
+      await _autoSave(raw, parsed, previousScientificName: previousScientificName);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -85,8 +116,9 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
   // ── Auto-Speichern ─────────────────────────────────────────────────────────
   Future<void> _autoSave(
     String raw,
-    ParseResult<PlantIdentificationResult> parsed,
-  ) async {
+    ParseResult<PlantIdentificationResult> parsed, {
+    String? previousScientificName,
+  }) async {
     final db = DatabaseService.instance;
     final now = DateTime.now();
 
@@ -120,6 +152,47 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     if (widget.existingPlantId != null) {
       final existing = ref.read(plantProvider(widget.existingPlantId!));
       if (existing != null) {
+        // ── Konflikt-Erkennung ────────────────────────────────────────────────
+        // Liegt ein vorheriger wissenschaftlicher Name vor und nennt das Modell
+        // jetzt eine andere Art? → NICHT still überschreiben, sondern Nutzer
+        // informieren. "Bestätigung" liegt vor wenn der neue Name leer ist
+        // oder mit dem gespeicherten übereinstimmt (case-insensitive Trim).
+        final prevName = previousScientificName?.trim().toLowerCase();
+        final newName = scientificName?.trim().toLowerCase();
+        final isConflict = prevName != null &&
+            prevName.isNotEmpty &&
+            newName != null &&
+            newName.isNotEmpty &&
+            newName != prevName;
+
+        if (isConflict) {
+          // Art-Abweichung: Pflanzendaten NICHT überschreiben.
+          // Nur Foto, Konfidenz und Care-Profil updaten (Pflegetipps können
+          // sich verbessern), aber scientificName / speciesName bleiben.
+          existing.identificationResult = raw;
+          existing.identificationConfidence = confidence;
+          if (careProfileJson != null) {
+            existing.careProfileJson = careProfileJson;
+          }
+          existing.updatedAt = now;
+          await db.savePlant(existing);
+          ref.invalidate(plantProvider(widget.existingPlantId!));
+          ref.invalidate(plantsProvider);
+          // Beide Strings sind durch isConflict-Guard garantiert non-null.
+          final prevSci = previousScientificName ?? '';
+          final newSci = scientificName ?? '';
+          setState(() {
+            _savedPlantId = widget.existingPlantId;
+            _speciesConflict = _SpeciesConflict(
+              previousScientificName: prevSci,
+              newScientificName: newSci,
+              newDisplayName: name.isNotEmpty ? name : newSci,
+            );
+          });
+          return;
+        }
+
+        // Bestätigung oder keine Voridentifikation: normal updaten.
         existing.speciesName =
             name.isNotEmpty ? name : existing.speciesName;
         existing.scientificName =
@@ -221,8 +294,18 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Gespeichert-Badge
-              if (_savedPlantId != null) _SavedBadge(theme: theme),
+              // Konflikt-Banner: Modell schlägt andere Art vor
+              if (_speciesConflict != null) ...[
+                _SpeciesConflictBanner(
+                  conflict: _speciesConflict!,
+                  theme: theme,
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              // Gespeichert-Badge (nur ohne Konflikt oder zusätzlich)
+              if (_savedPlantId != null && _speciesConflict == null)
+                _SavedBadge(theme: theme),
               const SizedBox(height: 8),
 
               // Diagnose starten
@@ -622,6 +705,137 @@ class _MarkdownFallbackSection extends StatelessWidget {
                     p: theme.textTheme.bodyMedium,
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Banner bei abweichender Art-Einschätzung des Modells.
+///
+/// Wird angezeigt wenn das Modell eine andere Art nennt als bisher gespeichert.
+/// Die bestehende Klassifikation bleibt ERHALTEN – der Nutzer wird nur informiert.
+class _SpeciesConflictBanner extends StatelessWidget {
+  final _SpeciesConflict conflict;
+  final ThemeData theme;
+
+  const _SpeciesConflictBanner({
+    required this.conflict,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const warnColor = Color(0xFFE65100); // deep orange
+    const warnBg = Color(0xFFFFF3E0);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: warnBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: warnColor.withValues(alpha: 0.5), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titelzeile
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: warnColor, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Abweichende Einschätzung',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: warnColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Bisherige Art
+          _ConflictRow(
+            icon: Icons.check_circle_outline,
+            iconColor: const Color(0xFF3D7A4E),
+            label: 'Bisher gespeichert:',
+            value: conflict.previousScientificName,
+            valueStyle: const TextStyle(
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF3D7A4E),
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Neue Einschätzung
+          _ConflictRow(
+            icon: Icons.swap_horiz,
+            iconColor: warnColor,
+            label: 'Neue Einschätzung:',
+            value:
+                '${conflict.newDisplayName} (${conflict.newScientificName})',
+            valueStyle: TextStyle(
+              fontStyle: FontStyle.italic,
+              color: warnColor.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Erklärung
+          Text(
+            'Die bisherige Klassifikation wurde NICHT überschrieben. '
+            'Schau dir die Erkennungsmerkmale an und entscheide selbst.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF6D4C41),
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final TextStyle valueStyle;
+
+  const _ConflictRow({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.valueStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: iconColor),
+        const SizedBox(width: 6),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(
+                  fontSize: 13, color: Color(0xFF444444), height: 1.4),
+              children: [
+                TextSpan(
+                    text: '$label ',
+                    style: const TextStyle(fontWeight: FontWeight.w500)),
+                TextSpan(text: value, style: valueStyle),
               ],
             ),
           ),

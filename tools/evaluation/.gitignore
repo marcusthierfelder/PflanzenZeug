@@ -1,0 +1,10 @@
+# Testbilder (lokal, nicht ins Repo)
+test_images/
+
+# Evaluierungs-Ergebnisse (lokal)
+results.json
+report.md
+
+# API-Keys (nie einchecken)
+.env
+*.key
