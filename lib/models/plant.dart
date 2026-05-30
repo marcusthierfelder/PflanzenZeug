@@ -10,6 +10,12 @@ class Plant {
   String? identificationResult;
   double? identificationConfidence;
   String? diagnosisResult;
+  /// Strukturiertes JSON-Profil der Pflanzen-Identifikation (JSON-String).
+  /// Kann null sein für Altdaten (Fallback auf [identificationResult] als Markdown).
+  String? careProfileJson;
+  /// Strukturiertes JSON der letzten Diagnose (JSON-String, neues Format).
+  /// Kann null sein für Altdaten → Fallback auf [diagnosisResult] als Markdown.
+  String? diagnosisResultJson;
   final DateTime createdAt;
   DateTime updatedAt;
   DateTime? lastCheckUp;
@@ -26,6 +32,8 @@ class Plant {
     this.identificationResult,
     this.identificationConfidence,
     this.diagnosisResult,
+    this.careProfileJson,
+    this.diagnosisResultJson,
     required this.createdAt,
     required this.updatedAt,
     this.lastCheckUp,
@@ -43,6 +51,8 @@ class Plant {
         'identificationResult': identificationResult,
         'identificationConfidence': identificationConfidence,
         'diagnosisResult': diagnosisResult,
+        'careProfileJson': careProfileJson,
+        'diagnosisResultJson': diagnosisResultJson,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
         'lastCheckUp': lastCheckUp?.toIso8601String(),
@@ -60,6 +70,10 @@ class Plant {
         identificationResult: json['identificationResult'] as String?,
         identificationConfidence: (json['identificationConfidence'] as num?)?.toDouble(),
         diagnosisResult: json['diagnosisResult'] as String?,
+        // Defensiv: careProfileJson fehlt bei Altdaten → null (Fallback auf Markdown)
+        careProfileJson: json['careProfileJson'] as String?,
+        // Defensiv: diagnosisResultJson fehlt bei Altdaten → null (Fallback auf diagnosisResult)
+        diagnosisResultJson: json['diagnosisResultJson'] as String?,
         createdAt: DateTime.parse(json['createdAt'] as String),
         updatedAt: DateTime.parse(json['updatedAt'] as String),
         lastCheckUp: json['lastCheckUp'] != null

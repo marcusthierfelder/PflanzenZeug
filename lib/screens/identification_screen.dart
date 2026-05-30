@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
+import '../models/care_profile/plant_identification_result.dart';
 import '../providers/ai_provider.dart';
 import '../providers/database_provider.dart';
-
 import '../services/database_service.dart';
+import '../services/parsers/care_profile_parser.dart';
+import '../services/parsers/parse_result.dart';
+import '../widgets/care_profile_grid.dart';
 import 'diagnosis_screen.dart';
 
 class IdentificationScreen extends ConsumerStatefulWidget {
@@ -27,31 +32,49 @@ class IdentificationScreen extends ConsumerStatefulWidget {
 }
 
 class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
-  String? _result;
+  /// Roher LLM-Output (String).
+  String? _rawResult;
+
+  /// Geparster Identifikations-Ergebnis (null bei Parse-Fehler).
+  ParseResult<PlantIdentificationResult>? _parseResult;
+
   String? _error;
   bool _loading = false;
   String? _savedPlantId;
 
+  // ── Shortcuts auf geparste Daten ──────────────────────────────────────────
+  PlantIdentificationResult? get _identified =>
+      _parseResult?.valueOrNull;
+
+  // ── API-Aufruf ─────────────────────────────────────────────────────────────
   Future<void> _identify() async {
     setState(() {
       _loading = true;
       _error = null;
+      _rawResult = null;
+      _parseResult = null;
     });
 
     try {
-      
-      
-
       final service = ref.read(aiServiceProvider);
-      if (service == null) throw Exception('Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
-      final result = await service.identifyPlant(
+      if (service == null) {
+        throw Exception(
+            'Kein API Key konfiguriert. Bitte in den Einstellungen hinterlegen.');
+      }
+
+      final raw = await service.identifyPlant(
         widget.images,
         isMixedPot: widget.isMixedPot,
       );
-      setState(() => _result = result);
 
-      // Automatisch zur Sammlung speichern
-      await _autoSave(result);
+      final parsed = CareProfileParser.parse(raw);
+
+      setState(() {
+        _rawResult = raw;
+        _parseResult = parsed;
+      });
+
+      await _autoSave(raw, parsed);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -59,24 +82,51 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     }
   }
 
-  Future<void> _autoSave(String result) async {
+  // ── Auto-Speichern ─────────────────────────────────────────────────────────
+  Future<void> _autoSave(
+    String raw,
+    ParseResult<PlantIdentificationResult> parsed,
+  ) async {
     final db = DatabaseService.instance;
     final now = DateTime.now();
 
-    final nameMatch = RegExp(r'NAME:\s*(.+)').firstMatch(result);
-    final sciMatch = RegExp(r'WISSENSCHAFTLICH:\s*(.+)').firstMatch(result);
-    final confidenceMatch = RegExp(r'SICHERHEIT:\s*(\d+)').firstMatch(result);
-    final name = nameMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim() ?? '';
-    final scientificName = sciMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim();
-    final confidence = confidenceMatch != null ? double.tryParse(confidenceMatch.group(1)!) : null;
+    // Namen, Vertrauen aus geparsten Daten oder Fallback-Regex
+    String name = '';
+    String? scientificName;
+    double? confidence;
+
+    if (parsed.isSuccess) {
+      final r = parsed.valueOrNull!;
+      name = r.name;
+      scientificName = r.scientificName;
+      confidence = r.confidence?.toDouble();
+    } else {
+      // Fallback: altes Regex-Parsing für den Namen
+      final nameMatch = RegExp(r'NAME:\s*(.+)').firstMatch(raw);
+      final sciMatch = RegExp(r'WISSENSCHAFTLICH:\s*(.+)').firstMatch(raw);
+      final confMatch = RegExp(r'SICHERHEIT:\s*(\d+)').firstMatch(raw);
+      name = nameMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim() ?? '';
+      scientificName =
+          sciMatch?.group(1)?.replaceAll(RegExp(r'[*#]'), '').trim();
+      confidence =
+          confMatch != null ? double.tryParse(confMatch.group(1)!) : null;
+    }
+
+    // careProfileJson: JSON-String bei Erfolg, sonst null
+    final careProfileJson = parsed.isSuccess
+        ? jsonEncode(parsed.valueOrNull!.toJson())
+        : null;
 
     if (widget.existingPlantId != null) {
       final existing = ref.read(plantProvider(widget.existingPlantId!));
       if (existing != null) {
-        existing.speciesName = name.isNotEmpty ? name : existing.speciesName;
-        existing.scientificName = scientificName ?? existing.scientificName;
-        existing.identificationResult = result;
+        existing.speciesName =
+            name.isNotEmpty ? name : existing.speciesName;
+        existing.scientificName =
+            scientificName ?? existing.scientificName;
+        existing.identificationResult = raw;
         existing.identificationConfidence = confidence;
+        existing.careProfileJson = careProfileJson;
         existing.updatedAt = now;
         await db.savePlant(existing);
         ref.invalidate(plantProvider(widget.existingPlantId!));
@@ -89,12 +139,15 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     final plantId = db.generateId();
     final plant = Plant(
       id: plantId,
-      nickname: name.isNotEmpty ? name : (widget.isMixedPot ? 'Mischtopf' : 'Meine Pflanze'),
+      nickname: name.isNotEmpty
+          ? name
+          : (widget.isMixedPot ? 'Mischtopf' : 'Meine Pflanze'),
       speciesName: name.isNotEmpty ? name : null,
       scientificName: scientificName,
       isMixedPot: widget.isMixedPot,
-      identificationResult: result,
+      identificationResult: raw,
       identificationConfidence: confidence,
+      careProfileJson: careProfileJson,
       createdAt: now,
       updatedAt: now,
     );
@@ -115,6 +168,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
     setState(() => _savedPlantId = plantId);
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -126,66 +180,24 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Image preview
-            SizedBox(
-              height: 120,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: widget.images.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (_, index) => ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    widget.images[index],
-                    width: 120,
-                    height: 120,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
+            // Foto-Vorschau
+            _PhotoPreview(images: widget.images),
             const SizedBox(height: 24),
 
-            if (_result == null && !_loading && _error == null)
+            // Startbutton
+            if (_rawResult == null && !_loading && _error == null)
               FilledButton.icon(
                 onPressed: _identify,
                 icon: const Icon(Icons.search),
                 label: const Text('Pflanze identifizieren'),
               ),
 
-            if (_loading) ...[
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('Pflanze wird erkannt...'),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            // Ladeindikator
+            if (_loading) const _LoadingState(),
 
+            // Fehler
             if (_error != null) ...[
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Icon(Icons.error, color: theme.colorScheme.error),
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _ErrorCard(error: _error!, theme: theme),
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: _identify,
@@ -194,66 +206,33 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
               ),
             ],
 
-            if (_result != null) ...[
-              Builder(builder: (context) {
-                final confidenceMatch = RegExp(r'SICHERHEIT:\s*(\d+)').firstMatch(_result!);
-                final confidence = confidenceMatch != null ? int.tryParse(confidenceMatch.group(1)!) : null;
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.eco, color: theme.colorScheme.primary),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Ergebnis',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (confidence != null) ...[
-                              const SizedBox(width: 8),
-                              _ConfidenceBadge(confidence: confidence),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        SelectableText(
-                          _result!,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-              const SizedBox(height: 16),
-              if (_savedPlantId != null)
-                Card(
-                  color: theme.colorScheme.primaryContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.check_circle,
-                            color: theme.colorScheme.primary),
-                        const SizedBox(width: 8),
-                        const Text('In Sammlung gespeichert'),
-                      ],
-                    ),
-                  ),
+            // Ergebnis
+            if (_rawResult != null && _parseResult != null) ...[
+              _parseResult!.when(
+                success: (result) => _StructuredResultSection(
+                  result: result,
+                  theme: theme,
                 ),
+                partial: (fallbackText, error) => _MarkdownFallbackSection(
+                  rawText: fallbackText,
+                  parseError: error,
+                  theme: theme,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Gespeichert-Badge
+              if (_savedPlantId != null) _SavedBadge(theme: theme),
               const SizedBox(height: 8),
+
+              // Diagnose starten
               FilledButton.icon(
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => DiagnosisScreen(
                         images: widget.images,
-                        plantName: _result!,
+                        plantName: _identified?.name ?? _rawResult!,
                         plantId: _savedPlantId,
                       ),
                     ),
@@ -263,6 +242,8 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
                 label: const Text('Diagnose starten'),
               ),
               const SizedBox(height: 8),
+
+              // Nochmal erkennen
               OutlinedButton.icon(
                 onPressed: _identify,
                 icon: const Icon(Icons.refresh),
@@ -276,6 +257,404 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
   }
 }
 
+// ── Sub-Widgets ────────────────────────────────────────────────────────────────
+
+class _PhotoPreview extends StatelessWidget {
+  final List<File> images;
+  const _PhotoPreview({required this.images});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: images.length,
+        separatorBuilder: (_, _i) => const SizedBox(width: 8),
+        itemBuilder: (_, index) => ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            images[index],
+            width: 120,
+            height: 120,
+            fit: BoxFit.cover,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Pflanze wird erkannt…'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final String error;
+  final ThemeData theme;
+  const _ErrorCard({required this.error, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(Icons.error, color: theme.colorScheme.error),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              style: TextStyle(color: theme.colorScheme.error),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Strukturiertes Karten-Layout (JSON wurde erfolgreich geparst).
+class _StructuredResultSection extends StatelessWidget {
+  final PlantIdentificationResult result;
+  final ThemeData theme;
+
+  const _StructuredResultSection({
+    required this.result,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header: Pflanzenname + Confidence
+        _PlantHeader(result: result, theme: theme),
+        const SizedBox(height: 16),
+
+        // Pflege-Karten-Grid (Hauptinhalt)
+        CareProfileGrid(
+          careProfile: result.careProfile,
+          difficulty: result.difficulty,
+          toxicity: result.toxicity,
+        ),
+
+        // Diagnostische Notizen (ausklappbar)
+        if (result.diagnosticNotes != null &&
+            result.diagnosticNotes!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _ExpandableNotes(
+            title: '🔬 Erkennungsmerkmale',
+            text: result.diagnosticNotes!,
+            theme: theme,
+          ),
+        ],
+
+        // Zusätzliche Hinweise (ausklappbar)
+        if (result.additionalNotes != null &&
+            result.additionalNotes!.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _ExpandableNotes(
+            title: '📝 Weitere Hinweise',
+            text: result.additionalNotes!,
+            theme: theme,
+            isMarkdown: true,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Pflanzen-Header: Name, wissenschaftlicher Name, Familie, Confidence.
+class _PlantHeader extends StatelessWidget {
+  final PlantIdentificationResult result;
+  final ThemeData theme;
+  const _PlantHeader({required this.result, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    const primaryGreen = Color(0xFF3D7A4E);
+    const lightGreenBg = Color(0xFFF0F7F1);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: lightGreenBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryGreen.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titelzeile
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.eco, color: primaryGreen, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  result.name,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: primaryGreen,
+                  ),
+                ),
+              ),
+              if (result.confidence != null)
+                _ConfidenceBadge(confidence: result.confidence!),
+            ],
+          ),
+          // Wissenschaftlicher Name
+          if (result.scientificName != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              result.scientificName!,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontStyle: FontStyle.italic,
+                color: const Color(0xFF555555),
+              ),
+            ),
+          ],
+          // Familie
+          if (result.family != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Familie: ${result.family}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF777777),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Ausklappbarer Notiz-Block (für diagnosticNotes / additionalNotes).
+class _ExpandableNotes extends StatefulWidget {
+  final String title;
+  final String text;
+  final ThemeData theme;
+  final bool isMarkdown;
+
+  const _ExpandableNotes({
+    required this.title,
+    required this.text,
+    required this.theme,
+    this.isMarkdown = false,
+  });
+
+  @override
+  State<_ExpandableNotes> createState() => _ExpandableNotesState();
+}
+
+class _ExpandableNotesState extends State<_ExpandableNotes> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFF8F8F8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Color(0xFFE0E0E0)),
+      ),
+      child: InkWell(
+        onTap: () => setState(() => _expanded = !_expanded),
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF444444),
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    duration: const Duration(milliseconds: 200),
+                    turns: _expanded ? 0.5 : 0,
+                    child: const Icon(
+                      Icons.expand_more,
+                      size: 18,
+                      color: Color(0xFF888888),
+                    ),
+                  ),
+                ],
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 200),
+                crossFadeState: _expanded
+                    ? CrossFadeState.showSecond
+                    : CrossFadeState.showFirst,
+                firstChild: const SizedBox.shrink(),
+                secondChild: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: widget.isMarkdown
+                      ? MarkdownBody(
+                          data: widget.text,
+                          selectable: true,
+                          styleSheet:
+                              MarkdownStyleSheet.fromTheme(widget.theme).copyWith(
+                            p: widget.theme.textTheme.bodyMedium?.copyWith(
+                              height: 1.6,
+                              fontSize: 14,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          widget.text,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF555555),
+                            height: 1.6,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Markdown-Fallback (JSON-Parsing fehlgeschlagen).
+class _MarkdownFallbackSection extends StatelessWidget {
+  final String rawText;
+  final String? parseError;
+  final ThemeData theme;
+
+  const _MarkdownFallbackSection({
+    required this.rawText,
+    this.parseError,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Hinweis: Altes Format
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF8E7),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.5)),
+          ),
+          child: Row(
+            children: [
+              const Text('ℹ️', style: TextStyle(fontSize: 14)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Ergebnis im Textformat (ältere Analyse)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange.shade800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Markdown-Anzeige
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.eco, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Ergebnis',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                MarkdownBody(
+                  data: rawText,
+                  selectable: true,
+                  styleSheet:
+                      MarkdownStyleSheet.fromTheme(theme).copyWith(
+                    p: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Gespeichert-Badge.
+class _SavedBadge extends StatelessWidget {
+  final ThemeData theme;
+  const _SavedBadge({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: theme.colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            const Text('In Sammlung gespeichert'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Confidence-Badge (grün/orange/rot je nach Wert).
 class _ConfidenceBadge extends StatelessWidget {
   final int confidence;
   const _ConfidenceBadge({required this.confidence});
@@ -301,10 +680,71 @@ class _ConfidenceBadge extends StatelessWidget {
           const SizedBox(width: 3),
           Text(
             '$confidence%',
-            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Zeigt strukturiertes Karten-Layout für eine bereits in der DB gespeicherte Pflanze.
+///
+/// Wird z.B. im PlantDetailScreen verwendet um das Care-Profil darzustellen.
+/// Gibt null zurück wenn kein care_profile_json vorhanden (Fallback muss außerhalb gehandelt werden).
+class PlantCareProfileView extends StatelessWidget {
+  final Plant plant;
+  final ThemeData theme;
+
+  const PlantCareProfileView({
+    super.key,
+    required this.plant,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final jsonStr = plant.careProfileJson;
+    if (jsonStr == null || jsonStr.isEmpty) {
+      // Kein strukturiertes Profil – Fallback auf Markdown
+      final markdown = plant.identificationResult ?? '';
+      if (markdown.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: MarkdownBody(
+          data: markdown,
+          selectable: true,
+          styleSheet: MarkdownStyleSheet.fromTheme(theme),
+        ),
+      );
+    }
+
+    final parseResult = CareProfileParser.parse(jsonStr);
+    return parseResult.when(
+      success: (result) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: CareProfileGrid(
+          careProfile: result.careProfile,
+          difficulty: result.difficulty,
+          toxicity: result.toxicity,
+        ),
+      ),
+      partial: (fallbackText, _) {
+        // Fallback: zeige Markdown-Identifikationsergebnis
+        final md = plant.identificationResult ?? fallbackText;
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: MarkdownBody(
+            data: md,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet.fromTheme(theme),
+          ),
+        );
+      },
     );
   }
 }

@@ -2,8 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../models/diagnosis/diagnosis_result.dart';
 import '../models/fertilizer.dart';
+import '../services/parsers/diagnosis_parser.dart';
+import '../services/parsers/parse_result.dart';
 import 'ai_service.dart';
+import 'image_optimizer.dart';
+import 'prompts/diagnosis_schema.dart';
+import 'prompts/plant_care_schema.dart';
 
 const _defaultSystemPrompt =
     'Du bist ein Pflanzenexperte. Antworte immer auf Deutsch. '
@@ -14,22 +20,20 @@ class DeepSeekService implements AIService {
 
   DeepSeekService(this.apiKey);
 
-  List<Map<String, dynamic>> _encodeImages(List<File> images) {
-    return images.map((image) {
-      final bytes = image.readAsBytesSync();
+  /// Optimiert alle Bilder (max 1280px, JPEG 80 %) und kodiert sie als Base64.
+  Future<List<Map<String, dynamic>>> _encodeImages(List<File> images) async {
+    final result = <Map<String, dynamic>>[];
+    for (final image in images) {
+      final optimized = await ImageOptimizer.optimize(image);
+      final bytes = await optimized.readAsBytes();
       final base64Image = base64Encode(bytes);
-      final extension = image.path.split('.').last.toLowerCase();
-      final mediaType = switch (extension) {
-        'png' => 'image/png',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-        _ => 'image/jpeg',
-      };
-      return {
+      const mediaType = 'image/jpeg';
+      result.add({
         'type': 'image_url',
         'image_url': {'url': 'data:$mediaType;base64,$base64Image'},
-      };
-    }).toList();
+      });
+    }
+    return result;
   }
 
   static String _fertilizerContext(List<Fertilizer> fertilizers) {
@@ -43,36 +47,26 @@ class DeepSeekService implements AIService {
   }
 
   @override
-  Future<String> identifyPlant(List<File> images, {bool isMixedPot = false}) async {
-    final content = <Map<String, dynamic>>[..._encodeImages(images)];
+  Future<String> identifyPlant(
+      List<File> images, {bool isMixedPot = false}) async {
+    final content = <Map<String, dynamic>>[...await _encodeImages(images)];
 
-    final promptText = isMixedPot
-        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen. '
-            'Identifiziere ALLE sichtbaren Arten anhand der ${images.length} Fotos.\n\n'
-            'Antworte EXAKT in diesem Format:\n'
-            'NAME: Mischtopf: <Art 1> & <Art 2>[ & ...]\n'
-            'WISSENSCHAFTLICH: <Gattung Art 1>, <Gattung Art 2>[, ...]\n\n'
-            'PFLANZEN:\n'
-            '1. <Deutscher Name> (<Gattung Art>) — kurze Beschreibung\n'
-            '2. ...\n\n'
-            'Beachte beim Beschreiben mögliche Konflikte zwischen den Arten. '
-            'Antworte auf Deutsch, kurz und präzise.'
-        : 'Identifiziere diese Pflanze anhand der ${images.length} Fotos. '
-            'Achte genau auf Blattform, Blattanordnung, Blüten, Wuchsform und Wurzeln.\n\n'
-            'Antworte EXAKT in diesem Format:\n'
-            'NAME: <Deutscher Pflanzenname>\n'
-            'WISSENSCHAFTLICH: <Gattung Art>\n\n'
-            '<Weitere Details zur Pflanze, Beschreibung, Pflegehinweise etc.>\n\n'
-            'Wenn du dir nicht sicher bist, gib die 2-3 wahrscheinlichsten '
-            'Kandidaten mit geschätzter Wahrscheinlichkeit an. '
-            'Antworte auf Deutsch, kurz und präzise.';
+    final promptText = PlantCareSchema.buildIdentifyPromptDeepSeek(
+      imageCount: images.length,
+      isMixedPot: isMixedPot,
+    );
 
     content.add({'type': 'text', 'text': promptText});
-    return _call([{'role': 'user', 'content': content}]);
+    // DeepSeek unterstützt response_format: json_object nativ
+    return _call(
+      [{'role': 'user', 'content': content}],
+      forceJsonMode: true,
+      maxTokens: 3000,
+    );
   }
 
   @override
-  Future<String> diagnosePlant({
+  Future<ParseResult<DiagnosisResult>> diagnosePlant({
     required List<File> images,
     required String plantName,
     String? location,
@@ -85,51 +79,46 @@ class DeepSeekService implements AIService {
     final content = <Map<String, dynamic>>[];
 
     if (historicalImages != null && historicalImages.isNotEmpty) {
-      content.addAll(_encodeImages(historicalImages));
-      content.add({'type': 'text', 'text': '⬆️ Das sind ältere Fotos der Pflanze zum Vergleich.'});
+      content.addAll(await _encodeImages(historicalImages));
+      content.add({
+        'type': 'text',
+        'text': '⬆️ Das sind ältere Fotos der Pflanze zum Vergleich.',
+      });
     }
-    content.addAll(_encodeImages(images));
+    content.addAll(await _encodeImages(images));
 
-    var prompt = isMixedPot
-        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen, identifiziert als "$plantName". '
-            'Analysiere ALLE Arten gemeinsam.\n\n'
-        : 'Diese Pflanze wurde als "$plantName" identifiziert.\n\n';
+    // Fertilizernames für Prompt
+    final fertilizerNames = availableFertilizers
+            ?.map((f) =>
+                '${f.name}${f.npkRatio != null ? ' (NPK: ${f.npkRatio})' : ''}')
+            .toList() ??
+        [];
 
-    if ((location != null && location.isNotEmpty) || (potInfo != null && potInfo.isNotEmpty)) {
-      prompt += '**Aktuelle Bedingungen:**\n';
-      if (location != null && location.isNotEmpty) prompt += '- Standort: $location\n';
-      if (potInfo != null && potInfo.isNotEmpty) prompt += '- Topf: $potInfo\n';
-      prompt += '\n';
-    }
-    if (previousDiagnosis != null && previousDiagnosis.isNotEmpty) {
-      prompt += '**Letzte Diagnose:**\n$previousDiagnosis\n\n'
-          'Berücksichtige die letzte Diagnose und erkenne Veränderungen.\n\n';
-    }
-    if (historicalImages != null && historicalImages.isNotEmpty) {
-      prompt += 'Die älteren Fotos oben zeigen den früheren Zustand. '
-          'Vergleiche mit den aktuellen Fotos.\n\n';
-    }
-
-    prompt += 'Bitte analysiere die aktuellen Bilder und beantworte auf Deutsch:\n\n'
-        '1. **Gesundheitszustand**: Wie sieht die Pflanze aus?\n'
-        '2. **Krankheiten**: Erkennst du Anzeichen von Krankheiten?\n'
-        '3. **Mangelerscheinungen**: Nährstoffmangel?\n'
-        '4. **Schädlinge**: Schädlingsbefall?\n'
-        '5. **Veränderungen**: Vergleich zu früheren Fotos/Diagnosen?\n'
-        '6. **Empfehlungen**: Dünger, Gießverhalten, Standort?\n\n'
-        'Sei konkret und praxisnah.';
-
-    if (availableFertilizers != null && availableFertilizers.isNotEmpty) {
-      prompt += _fertilizerContext(availableFertilizers);
-    }
+    final prompt = DiagnosisSchema.buildDeepSeekPrompt(
+      plantName: plantName,
+      location: location,
+      potInfo: potInfo,
+      isMixedPot: isMixedPot,
+      previousDiagnosis: previousDiagnosis,
+      hasHistoricalImages:
+          historicalImages != null && historicalImages.isNotEmpty,
+      availableFertilizerNames: fertilizerNames,
+    );
 
     content.add({'type': 'text', 'text': prompt});
-    return _call([{'role': 'user', 'content': content}]);
+
+    final raw = await _call(
+      [{'role': 'user', 'content': content}],
+      forceJsonMode: true,
+      maxTokens: 3000,
+    );
+
+    return DiagnosisParser.parse(raw);
   }
 
   @override
   Future<String> identifyFertilizer(List<File> images) async {
-    final content = <Map<String, dynamic>>[..._encodeImages(images)];
+    final content = <Map<String, dynamic>>[...await _encodeImages(images)];
     content.add({
       'type': 'text',
       'text': 'Analysiere dieses Düngerprodukt anhand der Fotos. Antworte auf Deutsch:\n\n'
@@ -167,9 +156,14 @@ class DeepSeekService implements AIService {
     String? diagnosisResult,
   }) async {
     var prompt = 'Basierend auf folgenden Infos zur Pflanze "$plantName":\n\n';
-    if (identificationResult != null) prompt += 'Identifikation:\n$identificationResult\n\n';
-    if (diagnosisResult != null) prompt += 'Diagnose:\n$diagnosisResult\n\n';
-    prompt += 'Schlage einen Pflege-Plan vor. Antworte NUR mit diesem JSON-Format, ohne weiteren Text:\n'
+    if (identificationResult != null) {
+      prompt += 'Identifikation:\n$identificationResult\n\n';
+    }
+    if (diagnosisResult != null) {
+      prompt += 'Diagnose:\n$diagnosisResult\n\n';
+    }
+    prompt +=
+        'Schlage einen Pflege-Plan vor. Antworte NUR mit diesem JSON-Format, ohne weiteren Text:\n'
         '{"watering_interval_days": <Zahl>, "fertilizing_interval_days": <Zahl>, "notes": "<kurze Hinweise auf Deutsch>"}';
 
     return _call([{'role': 'user', 'content': prompt}]);
@@ -179,13 +173,18 @@ class DeepSeekService implements AIService {
     List<Map<String, dynamic>> messages, {
     bool includeSystem = true,
     int maxTokens = 2048,
+    bool forceJsonMode = false,
   }) async {
     final body = <String, dynamic>{
       'model': 'deepseek-chat',
       'max_tokens': maxTokens,
       'messages': includeSystem
-          ? [{'role': 'system', 'content': _defaultSystemPrompt}, ...messages]
+          ? [
+              {'role': 'system', 'content': _defaultSystemPrompt},
+              ...messages,
+            ]
           : messages,
+      if (forceJsonMode) 'response_format': {'type': 'json_object'},
     };
 
     final http.Response response;
@@ -199,13 +198,16 @@ class DeepSeekService implements AIService {
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 120));
     } on TimeoutException {
-      throw Exception('Die Anfrage hat zu lange gedauert. Bitte versuche es erneut.');
+      throw Exception(
+          'Die Anfrage hat zu lange gedauert. Bitte versuche es erneut.');
     } on SocketException {
-      throw Exception('Keine Internetverbindung. Bitte prüfe deine Verbindung.');
+      throw Exception(
+          'Keine Internetverbindung. Bitte prüfe deine Verbindung.');
     }
 
     if (response.statusCode == 401) {
-      throw Exception('Ungültiger DeepSeek API-Key. Bitte prüfe deinen Schlüssel.');
+      throw Exception(
+          'Ungültiger DeepSeek API-Key. Bitte prüfe deinen Schlüssel.');
     }
     if (response.statusCode == 429) {
       throw Exception('Zu viele Anfragen. Bitte warte einen Moment.');

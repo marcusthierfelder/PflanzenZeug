@@ -1,10 +1,15 @@
 import 'dart:io';
+import '../models/diagnosis/diagnosis_result.dart';
 import '../models/fertilizer.dart';
+import '../services/parsers/parse_result.dart';
 
 abstract class AIService {
   Future<String> identifyPlant(List<File> images, {bool isMixedPot = false});
 
-  Future<String> diagnosePlant({
+  /// Analysiert Bilder und gibt ein strukturiertes [DiagnosisResult] zurück.
+  ///
+  /// Bei Parse-Fehler: [ParsePartial] mit Roh-Text als Markdown-Fallback.
+  Future<ParseResult<DiagnosisResult>> diagnosePlant({
     required List<File> images,
     required String plantName,
     String? location,

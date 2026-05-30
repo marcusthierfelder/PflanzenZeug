@@ -14,7 +14,7 @@ import '../services/notification_service.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/care_section.dart';
 import 'diagnosis_screen.dart';
-import 'identification_screen.dart';
+import 'identification_screen.dart' show IdentificationScreen, PlantCareProfileView;
 import 'chat_screen.dart';
 
 class PlantDetailScreen extends ConsumerStatefulWidget {
@@ -28,15 +28,77 @@ class PlantDetailScreen extends ConsumerStatefulWidget {
 class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
   final _picker = ImagePicker();
 
+  /// Zeigt ein Modal-Bottom-Sheet zur Auswahl der Bildquelle (Kamera oder Galerie).
+  /// Kamera: einzelnes Foto via [ImageSource.camera].
+  /// Galerie: mehrere Fotos via [pickMultiImage].
   Future<void> _addPhoto() async {
-    final photos = await _picker.pickMultiImage(
-      imageQuality: 85,
-      maxWidth: 1920,
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag-Handle
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Foto hinzufügen',
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Kamera'),
+                onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Galerie'),
+                onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (photos.isEmpty) return;
+
+    if (source == null) return; // Nutzer hat abgebrochen
+
+    List<XFile> selectedFiles;
+
+    if (source == ImageSource.camera) {
+      final photo = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        maxWidth: 1920,
+      );
+      if (photo == null) return;
+      selectedFiles = [photo];
+    } else {
+      selectedFiles = await _picker.pickMultiImage(
+        imageQuality: 85,
+        maxWidth: 1920,
+      );
+      if (selectedFiles.isEmpty) return;
+    }
 
     final db = DatabaseService.instance;
-    for (final xfile in photos) {
+    for (final xfile in selectedFiles) {
       final persisted = await db.persistImage(File(xfile.path));
       await db.savePhoto(PlantPhoto(
         id: db.generateId(),
@@ -207,9 +269,28 @@ class _PlantDetailScreenState extends ConsumerState<PlantDetailScreen> {
 
                   const SizedBox(height: 8),
 
+                  // Pflege-Profil (strukturiertes Karten-Layout oder Markdown-Fallback)
+                  if (plant.careProfileJson != null ||
+                      plant.identificationResult != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Pflege-Tipps',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    PlantCareProfileView(
+                      plant: plant,
+                      theme: Theme.of(context),
+                    ),
+                  ],
+
                   // Last diagnosis
-                  if (plant.diagnosisResult != null)
+                  if (plant.diagnosisResult != null) ...[
+                    const SizedBox(height: 8),
                     _DiagnosisCard(diagnosis: plant.diagnosisResult!),
+                  ],
 
                   const SizedBox(height: 16),
 

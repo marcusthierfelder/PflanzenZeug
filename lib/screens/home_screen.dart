@@ -7,6 +7,7 @@ import '../models/plant_photo.dart';
 import '../providers/api_key_provider.dart';
 import '../providers/database_provider.dart';
 import '../services/database_service.dart';
+import '../widgets/photo_tips_sheet.dart';
 import 'identification_screen.dart';
 import 'plant_detail_screen.dart';
 
@@ -23,25 +24,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isMixedPot = false;
 
   Future<void> _takePhoto() async {
+    // Foto-Tipps beim ersten Mal anzeigen, bevor die Kamera öffnet
+    await maybeShowPhotoTipsSheet(context);
+    if (!mounted) return;
+
     final photo = await _picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
       maxWidth: 1920,
     );
-    if (photo != null) {
-      setState(() => _images.add(File(photo.path)));
+    if (photo != null && mounted) {
+      final file = File(photo.path);
+      _checkImageSize(file);
+      setState(() => _images.add(file));
     }
   }
 
   Future<void> _pickFromGallery() async {
+    // Foto-Tipps beim ersten Mal anzeigen, bevor die Galerie öffnet
+    await maybeShowPhotoTipsSheet(context);
+    if (!mounted) return;
+
     final photos = await _picker.pickMultiImage(
       imageQuality: 85,
       maxWidth: 1920,
     );
-    if (photos.isNotEmpty) {
-      setState(() {
-        _images.addAll(photos.map((p) => File(p.path)));
-      });
+    if (photos.isNotEmpty && mounted) {
+      final files = photos.map((p) => File(p.path)).toList();
+      for (final f in files) {
+        _checkImageSize(f);
+      }
+      setState(() => _images.addAll(files));
+    }
+  }
+
+  /// Prüft die Dateigröße und zeigt bei < 30 KB einen nicht-blockierenden Hinweis.
+  Future<void> _checkImageSize(File image) async {
+    final size = await image.length();
+    if (size < 30 * 1024 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '⚠️ Bild könnte zu klein sein – Erkennung evtl. ungenau',
+          ),
+          duration: Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 

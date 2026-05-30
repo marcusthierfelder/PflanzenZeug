@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/diagnosis/diagnosis_result.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import '../providers/ai_provider.dart';
 import '../providers/database_provider.dart';
 import '../providers/fertilizer_provider.dart';
-
+import '../services/parsers/parse_result.dart';
 import '../services/database_service.dart';
 
 /// Status-Wizard: führt den User durch einen schnellen Check
@@ -27,7 +28,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
   // Wizard-Zustand pro Pflanze
   List<File> _photos = [];
   bool _analyzing = false;
-  String? _result;
+  ParseResult<DiagnosisResult>? _diagnosisResult;
   String? _error;
 
   @override
@@ -82,6 +83,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
     setState(() {
       _analyzing = true;
       _error = null;
+      _diagnosisResult = null;
     });
 
     try {
@@ -125,7 +127,14 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
       }
 
       // Plant aktualisieren
-      plant.diagnosisResult = result;
+      if (result is ParseSuccess<DiagnosisResult>) {
+        final dr = result.value;
+        plant.diagnosisResultJson = dr.toJsonString();
+        plant.diagnosisResult = dr.toMarkdown();
+      } else if (result is ParsePartial<DiagnosisResult>) {
+        plant.diagnosisResult = result.fallbackText;
+        plant.diagnosisResultJson = null;
+      }
       plant.lastCheckUp = DateTime.now();
       plant.updatedAt = DateTime.now();
       await db.savePlant(plant);
@@ -134,7 +143,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
       ref.invalidate(plantPhotosProvider(plant.id));
       ref.invalidate(plantsProvider);
 
-      setState(() => _result = result);
+      setState(() => _diagnosisResult = result);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -146,7 +155,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
     setState(() {
       _currentIndex++;
       _photos = [];
-      _result = null;
+      _diagnosisResult = null;
       _error = null;
     });
   }
@@ -282,7 +291,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
 
             const SizedBox(height: 16),
 
-            if (_result == null && !_analyzing) ...[
+            if (_diagnosisResult == null && !_analyzing) ...[
               Text('Mach ein aktuelles Foto:',
                   style: theme.textTheme.titleSmall),
               const SizedBox(height: 8),
@@ -388,7 +397,7 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
               ),
             ],
 
-            if (_result != null) ...[
+            if (_diagnosisResult != null) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -406,8 +415,13 @@ class _StatusWizardScreenState extends ConsumerState<StatusWizardScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      SelectableText(_result!,
-                          style: theme.textTheme.bodyMedium),
+                      SelectableText(
+                        _diagnosisResult!.when(
+                          success: (dr) => dr.toMarkdown(),
+                          partial: (fallback, _) => fallback,
+                        ),
+                        style: theme.textTheme.bodyMedium,
+                      ),
                     ],
                   ),
                 ),

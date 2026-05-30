@@ -2,8 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../models/diagnosis/diagnosis_result.dart';
 import '../models/fertilizer.dart';
+import '../services/parsers/diagnosis_parser.dart';
+import '../services/parsers/parse_result.dart';
 import 'ai_service.dart';
+import 'image_optimizer.dart';
+import 'prompts/diagnosis_schema.dart';
+import 'prompts/plant_care_schema.dart';
 
 const _defaultSystemPrompt =
     'Du bist ein Pflanzenexperte mit fundiertem Wissen aus Botanik, Landwirtschaft und Gartenbau. '
@@ -19,18 +25,14 @@ class ClaudeService implements AIService {
 
   ClaudeService(this.apiKey);
 
-  List<Map<String, dynamic>> _encodeImages(List<File> images) {
+  /// Optimiert alle Bilder (max 1280px, JPEG 80 %) und kodiert sie als Base64.
+  Future<List<Map<String, dynamic>>> _encodeImages(List<File> images) async {
     final contents = <Map<String, dynamic>>[];
     for (final image in images) {
-      final bytes = image.readAsBytesSync();
+      final optimized = await ImageOptimizer.optimize(image);
+      final bytes = await optimized.readAsBytes();
       final base64Image = base64Encode(bytes);
-      final extension = image.path.split('.').last.toLowerCase();
-      final mediaType = switch (extension) {
-        'png' => 'image/png',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-        _ => 'image/jpeg',
-      };
+      const mediaType = 'image/jpeg';
 
       contents.add({
         'type': 'image',
@@ -55,51 +57,30 @@ class ClaudeService implements AIService {
   }
 
   @override
-  Future<String> identifyPlant(List<File> images, {bool isMixedPot = false}) async {
-    final imageContents = _encodeImages(images);
+  Future<String> identifyPlant(
+      List<File> images, {bool isMixedPot = false}) async {
+    final imageContents = await _encodeImages(images);
 
-    final promptText = isMixedPot
-        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen. '
-            'Identifiziere ALLE sichtbaren Arten anhand der ${images.length} Bilder. '
-            'Analysiere ALLE Bilder systematisch und berücksichtige alle erkennbaren Merkmale: '
-            'Blattform, Blattstellung, Blattoberfläche, Wuchsform, Blüten, Früchte, Rinde.\n\n'
-            'Stütze die Bestimmung auf botanische Fachliteratur und -datenbanken '
-            '(Zander Handwörterbuch der Pflanzennamen, Rothmaler Flora von Deutschland, '
-            'Plants of the World Online / Kew, RHS Encyclopaedia of Plants, Tropicos).\n\n'
-            'Antworte EXAKT in diesem Format:\n'
-            'NAME: Mischtopf: <Art 1> & <Art 2>[ & ...]\n'
-            'WISSENSCHAFTLICH: <Gattung Art 1>, <Gattung Art 2>[, ...]\n'
-            'SICHERHEIT: <XX%> (Gesamtbestimmung)\n\n'
-            'PFLANZEN:\n'
-            '1. <Deutscher Name> (<Gattung Art>) – SICHERHEIT: XX%\n'
-            '   <Diagnostische Merkmale>\n'
-            '2. ...\n\n'
-            'KOMPATIBILITÄT: <Unterschiedliche Ansprüche der Arten, z.B. Wasser, Licht, Nährstoffe>\n\n'
-            'Antworte auf Deutsch.'
-        : 'Identifiziere diese Pflanze anhand der ${images.length} Bilder. '
-            'Analysiere ALLE Bilder systematisch und berücksichtige alle erkennbaren Merkmale: '
-            'Blattform, Blattstellung, Blattoberfläche, Wuchsform, Blüten, Früchte, Rinde, Wurzeln.\n\n'
-            'Stütze die Bestimmung auf botanische Fachliteratur und -datenbanken '
-            '(Zander Handwörterbuch der Pflanzennamen, Rothmaler Flora von Deutschland, '
-            'Plants of the World Online / Kew, RHS Encyclopaedia of Plants, Tropicos).\n\n'
-            'Antworte EXAKT in diesem Format:\n'
-            'NAME: <Deutscher Pflanzenname>\n'
-            'WISSENSCHAFTLICH: <Gattung Art (Autor)>\n'
-            'FAMILIE: <Pflanzenfamilie>\n'
-            'SICHERHEIT: <XX%>\n\n'
-            '<Diagnostische Merkmale, die zur Bestimmung geführt haben>\n'
-            '<Pflegehinweise>\n\n'
-            'Bei Sicherheit unter 80 %: Liste die 2–3 wahrscheinlichsten Kandidaten '
-            'mit jeweiliger Einzelwahrscheinlichkeit auf.\n'
-            'Antworte auf Deutsch.';
+    final promptText = PlantCareSchema.buildIdentifyPrompt(
+      imageCount: images.length,
+      isMixedPot: isMixedPot,
+    );
 
     imageContents.add({'type': 'text', 'text': promptText});
 
-    return _callClaude(imageContents);
+    // Assistant-Prefill-Trick: Claude beginnt mit `{` → erzwingt JSON-Start
+    return _callClaudeMessages(
+      [
+        {'role': 'user', 'content': imageContents},
+        {'role': 'assistant', 'content': '{'},
+      ],
+      prefillAssistant: true,
+      maxTokens: 3000,
+    );
   }
 
   @override
-  Future<String> diagnosePlant({
+  Future<ParseResult<DiagnosisResult>> diagnosePlant({
     required List<File> images,
     required String plantName,
     String? location,
@@ -113,7 +94,7 @@ class ClaudeService implements AIService {
 
     // Historische Fotos zuerst senden (ältere Aufnahmen als Kontext)
     if (historicalImages != null && historicalImages.isNotEmpty) {
-      imageContents.addAll(_encodeImages(historicalImages));
+      imageContents.addAll(await _encodeImages(historicalImages));
       imageContents.add({
         'type': 'text',
         'text': '⬆️ Das sind ältere Fotos der Pflanze zum Vergleich.',
@@ -121,66 +102,44 @@ class ClaudeService implements AIService {
     }
 
     // Aktuelle Fotos
-    imageContents.addAll(_encodeImages(images));
+    imageContents.addAll(await _encodeImages(images));
 
-    var promptText = isMixedPot
-        ? 'In diesem Topf wachsen MEHRERE Pflanzen zusammen, identifiziert als "$plantName". '
-            'Analysiere ALLE Arten gemeinsam und beachte besonders Konflikte und '
-            'Wechselwirkungen zwischen den Arten (Wasser-, Licht-, Nährstoff-Bedarf, '
-            'konkurrierende Wurzeln, gegenseitige Beschattung).\n\n'
-        : 'Diese Pflanze wurde als "$plantName" identifiziert.\n\n';
+    // Fertilizernames für Prompt
+    final fertilizerNames = availableFertilizers
+            ?.map((f) =>
+                '${f.name}${f.npkRatio != null ? ' (NPK: ${f.npkRatio})' : ''}')
+            .toList() ??
+        [];
 
-    // Standort- und Topf-Kontext
-    if ((location != null && location.isNotEmpty) ||
-        (potInfo != null && potInfo.isNotEmpty)) {
-      promptText += '**Aktuelle Bedingungen:**\n';
-      if (location != null && location.isNotEmpty) {
-        promptText += '- Standort: $location\n';
-      }
-      if (potInfo != null && potInfo.isNotEmpty) {
-        promptText += '- Topf: $potInfo\n';
-      }
-      promptText += '\n';
-    }
-
-    // Frühere Diagnose als Kontext
-    if (previousDiagnosis != null && previousDiagnosis.isNotEmpty) {
-      promptText += '**Letzte Diagnose:**\n$previousDiagnosis\n\n'
-          'Berücksichtige die letzte Diagnose und erkenne '
-          'Veränderungen (Verbesserung oder Verschlechterung).\n\n';
-    }
-
-    if (historicalImages != null && historicalImages.isNotEmpty) {
-      promptText += 'Die älteren Fotos oben zeigen den früheren Zustand. '
-          'Vergleiche mit den aktuellen Fotos und beschreibe Veränderungen.\n\n';
-    }
-
-    promptText +=
-        'Bitte analysiere die aktuellen Bilder und beantworte auf Deutsch:\n\n'
-        '1. **Gesundheitszustand**: Wie sieht die Pflanze aus? Gibt es sichtbare Probleme?\n'
-        '2. **Krankheiten**: Erkennst du Anzeichen von Krankheiten? Wenn ja, welche?\n'
-        '3. **Mangelerscheinungen**: Gibt es Anzeichen für Nährstoffmangel (z.B. Stickstoff, Eisen, Kalium)?\n'
-        '4. **Schädlinge**: Siehst du Anzeichen von Schädlingsbefall?\n'
-        '5. **Veränderungen**: Hat sich der Zustand im Vergleich zu früheren Fotos/Diagnosen verändert?\n'
-        '6. **Empfehlungen**: Was sollte der Besitzer tun?\n'
-        '   - Welcher Dünger? (konkreter Vorschlag)\n'
-        '   - Gießverhalten ändern?\n'
-        '   - Standort ändern?\n'
-        '   - Sonstige Maßnahmen?\n\n'
-        'Sei konkret und praxisnah in deinen Empfehlungen.';
-
-    if (availableFertilizers != null && availableFertilizers.isNotEmpty) {
-      promptText += _fertilizerContext(availableFertilizers);
-    }
+    final promptText = DiagnosisSchema.buildClaudePrompt(
+      plantName: plantName,
+      location: location,
+      potInfo: potInfo,
+      isMixedPot: isMixedPot,
+      previousDiagnosis: previousDiagnosis,
+      hasHistoricalImages:
+          historicalImages != null && historicalImages.isNotEmpty,
+      availableFertilizerNames: fertilizerNames,
+    );
 
     imageContents.add({'type': 'text', 'text': promptText});
 
-    return _callClaude(imageContents);
+    // Assistant-Prefill `{` erzwingt JSON-Output
+    final raw = await _callClaudeMessages(
+      [
+        {'role': 'user', 'content': imageContents},
+        {'role': 'assistant', 'content': '{'},
+      ],
+      prefillAssistant: true,
+      maxTokens: 3000,
+    );
+
+    return DiagnosisParser.parse(raw);
   }
 
   @override
   Future<String> identifyFertilizer(List<File> images) async {
-    final imageContents = _encodeImages(images);
+    final imageContents = await _encodeImages(images);
 
     imageContents.add({
       'type': 'text',
@@ -212,7 +171,8 @@ class ClaudeService implements AIService {
 
     String? systemPrompt;
     if (availableFertilizers != null && availableFertilizers.isNotEmpty) {
-      systemPrompt = '$_defaultSystemPrompt${_fertilizerContext(availableFertilizers)}';
+      systemPrompt =
+          '$_defaultSystemPrompt${_fertilizerContext(availableFertilizers)}';
     }
 
     return _callClaudeMessages(messages, systemPrompt: systemPrompt);
@@ -254,6 +214,7 @@ class ClaudeService implements AIService {
     List<Map<String, dynamic>> messages, {
     String? systemPrompt,
     int maxTokens = 2048,
+    bool prefillAssistant = false,
   }) async {
     final http.Response response;
     try {
@@ -303,6 +264,11 @@ class ClaudeService implements AIService {
         .join('\n');
     if (textBlocks.isEmpty) {
       throw Exception('Keine Antwort von Claude erhalten.');
+    }
+    // Bei Prefill-Trick: Claude antwortet OHNE das führende `{`.
+    // Wir fügen es wieder hinzu damit der JSON-Block vollständig ist.
+    if (prefillAssistant) {
+      return '{$textBlocks';
     }
     return textBlocks;
   }
