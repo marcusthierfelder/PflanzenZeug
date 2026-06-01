@@ -62,6 +62,34 @@ enum Severity {
   }
 }
 
+/// Konfidenz eines Befunds – wie sicher ist die Diagnose.
+///
+/// - [high] → eindeutiger Befund, mehrere Belege sichtbar
+/// - [medium] → wahrscheinlicher Befund, aber nicht 100 % gesichert
+/// - [low] → möglicher Befund, unsichere Grundlage (z. B. Beleuchtung/Farbabweichung)
+enum Confidence {
+  high,
+  medium,
+  low;
+
+  /// Deutsches Anzeige-Label.
+  String get label => switch (this) {
+        Confidence.high => 'Sicher',
+        Confidence.medium => 'Wahrscheinlich',
+        Confidence.low => 'Möglich',
+      };
+
+  /// Fallback für Altdaten ohne Confidence-Feld → gilt als [high].
+  static Confidence fromString(String? value) {
+    return switch (value?.toLowerCase()) {
+      'high' => Confidence.high,
+      'medium' => Confidence.medium,
+      'low' => Confidence.low,
+      _ => Confidence.high, // Abwärtskompatibilität: kein Feld = high
+    };
+  }
+}
+
 /// Ein einzelner Befund der Pflanzen-Diagnose.
 class Finding {
   final FindingType type;
@@ -70,12 +98,16 @@ class Finding {
   final String evidence;
   final String treatment;
 
+  /// Wie sicher ist dieser Befund? Standardwert [Confidence.high] für Altdaten.
+  final Confidence confidence;
+
   const Finding({
     required this.type,
     required this.severity,
     required this.title,
     required this.evidence,
     required this.treatment,
+    this.confidence = Confidence.high,
   });
 
   factory Finding.fromJson(Map<String, dynamic> json) => Finding(
@@ -84,6 +116,8 @@ class Finding {
         title: json['title'] as String? ?? 'Unbekannter Befund',
         evidence: json['evidence'] as String? ?? '',
         treatment: json['treatment'] as String? ?? '',
+        // Defensiv: fehlendes Feld bei Altdaten → high (Abwärtskompatibilität)
+        confidence: Confidence.fromString(json['confidence'] as String?),
       );
 
   Map<String, dynamic> toJson() => {
@@ -92,5 +126,6 @@ class Finding {
         'title': title,
         'evidence': evidence,
         'treatment': treatment,
+        'confidence': confidence.name,
       };
 }

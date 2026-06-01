@@ -7,6 +7,8 @@ import '../../models/diagnosis/finding.dart';
 /// - Hintergrund: ~8% Alpha Tint der Severity-Farbe
 /// - Titel + Type-Icon + Severity-Label immer sichtbar
 /// - Evidence + Treatment ausklappbar
+/// - Bei [Confidence.low]: gedämpfte Darstellung + „Möglich"-Badge
+/// - Bei [Confidence.medium]: subtiler Hinweis-Chip
 class FindingCard extends StatefulWidget {
   final Finding finding;
 
@@ -55,148 +57,283 @@ class _FindingCardState extends State<FindingCard> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final severityColor =
-        _severityColor(widget.finding.severity, brightness);
+    final isDark = brightness == Brightness.dark;
+    final severityColor = _severityColor(widget.finding.severity, brightness);
     final typeColor = _typeColor(widget.finding.type, brightness);
     final theme = Theme.of(context);
+    final confidence = widget.finding.confidence;
+
+    // Bei low-Confidence: reduzierte Opazität + gedämpfte Farben
+    final isLowConfidence = confidence == Confidence.low;
+    final isMediumConfidence = confidence == Confidence.medium;
+    final backgroundAlpha = isLowConfidence ? 0.05 : 0.08;
+    final borderAlpha = isLowConfidence ? 0.4 : 1.0;
 
     final hasDetails = widget.finding.evidence.isNotEmpty ||
         widget.finding.treatment.isNotEmpty;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: severityColor.withValues(alpha: 0.08),
-          border: Border(
-            left: BorderSide(color: severityColor, width: 4),
-          ),
-          borderRadius: const BorderRadius.only(
-            topRight: Radius.circular(8),
-            bottomRight: Radius.circular(8),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Immer sichtbarer Header
-            InkWell(
-              onTap: hasDetails
-                  ? () => setState(() => _expanded = !_expanded)
-                  : null,
-              borderRadius: const BorderRadius.only(
-                topRight: Radius.circular(8),
-                bottomRight: Radius.circular(8),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                child: Row(
-                  children: [
-                    // Type-Icon mit Semantik-Label (Accessibility)
-                    Tooltip(
-                      message: widget.finding.type.label,
-                      child: Icon(
-                        _typeIcon(widget.finding.type),
-                        color: typeColor,
-                        size: 20,
-                        semanticLabel: widget.finding.type.label,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.finding.title,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              // Type-Label (Text für Accessibility)
-                              Text(
-                                widget.finding.type.label,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: typeColor,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Severity-Chip
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: severityColor.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: severityColor.withValues(alpha: 0.4),
-                                    width: 0.5,
-                                  ),
-                                ),
-                                child: Text(
-                                  widget.finding.severity.label,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: severityColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (hasDetails)
-                      Icon(
-                        _expanded
-                            ? Icons.expand_less
-                            : Icons.expand_more,
-                        size: 20,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                  ],
-                ),
+    return Opacity(
+      // low-Confidence: leicht ausgeblendet um abgeschwächte Relevanz zu signalisieren
+      opacity: isLowConfidence ? 0.78 : 1.0,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          decoration: BoxDecoration(
+            color: severityColor.withValues(alpha: backgroundAlpha),
+            border: Border(
+              left: BorderSide(
+                color: severityColor.withValues(alpha: borderAlpha),
+                width: isLowConfidence ? 2 : 4,
               ),
             ),
-
-            // Ausklappbarer Detail-Bereich
-            if (_expanded && hasDetails)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Divider(
-                      height: 1,
-                      color: severityColor.withValues(alpha: 0.2),
-                    ),
-                    const SizedBox(height: 8),
-                    if (widget.finding.evidence.isNotEmpty) ...[
-                      _DetailRow(
-                        icon: Icons.search,
-                        label: 'Befund',
-                        text: widget.finding.evidence,
-                        theme: theme,
+            borderRadius: const BorderRadius.only(
+              topRight: Radius.circular(8),
+              bottomRight: Radius.circular(8),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Immer sichtbarer Header
+              InkWell(
+                onTap: hasDetails
+                    ? () => setState(() => _expanded = !_expanded)
+                    : null,
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(8),
+                  bottomRight: Radius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Row(
+                    children: [
+                      // Type-Icon mit Semantik-Label (Accessibility)
+                      Tooltip(
+                        message: widget.finding.type.label,
+                        child: Icon(
+                          _typeIcon(widget.finding.type),
+                          color: typeColor.withValues(
+                            alpha: isLowConfidence ? 0.65 : 1.0,
+                          ),
+                          size: 20,
+                          semanticLabel: widget.finding.type.label,
+                        ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Titel-Zeile mit optionalem Confidence-Hinweis
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    widget.finding.title,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: isLowConfidence
+                                          ? theme.colorScheme.onSurface
+                                              .withValues(alpha: 0.7)
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                                if (isLowConfidence)
+                                  _ConfidenceBadge(
+                                    label: confidence.label, // "Möglich"
+                                    color: isDark
+                                        ? const Color(0xFF90A4AE)
+                                        : const Color(0xFF607D8B),
+                                    icon: Icons.help_outline,
+                                  ),
+                                if (isMediumConfidence)
+                                  _ConfidenceBadge(
+                                    label: confidence.label, // "Wahrscheinlich"
+                                    color: isDark
+                                        ? const Color(0xFFFFB74D)
+                                        : const Color(0xFFF57C00),
+                                    icon: Icons.info_outline,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                // Type-Label (Text für Accessibility)
+                                Text(
+                                  widget.finding.type.label,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: typeColor.withValues(
+                                      alpha: isLowConfidence ? 0.65 : 1.0,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Severity-Chip
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: severityColor.withValues(
+                                      alpha: isLowConfidence ? 0.08 : 0.15,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: severityColor.withValues(
+                                        alpha: isLowConfidence ? 0.25 : 0.4,
+                                      ),
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    widget.finding.severity.label,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: severityColor.withValues(
+                                        alpha: isLowConfidence ? 0.65 : 1.0,
+                                      ),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (hasDetails)
+                        Icon(
+                          _expanded ? Icons.expand_less : Icons.expand_more,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                     ],
-                    if (widget.finding.treatment.isNotEmpty)
-                      _DetailRow(
-                        icon: Icons.healing,
-                        label: 'Behandlung',
-                        text: widget.finding.treatment,
-                        theme: theme,
-                      ),
-                  ],
+                  ),
                 ),
               ),
-          ],
+
+              // Ausklappbarer Detail-Bereich
+              if (_expanded && hasDetails)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Divider(
+                        height: 1,
+                        color: severityColor.withValues(alpha: 0.2),
+                      ),
+                      const SizedBox(height: 8),
+                      // Hinweistext bei low-Confidence
+                      if (isLowConfidence) ...[
+                        _ConfidenceHint(theme: theme, isDark: isDark),
+                        const SizedBox(height: 8),
+                      ],
+                      if (widget.finding.evidence.isNotEmpty) ...[
+                        _DetailRow(
+                          icon: Icons.search,
+                          label: 'Befund',
+                          text: widget.finding.evidence,
+                          theme: theme,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (widget.finding.treatment.isNotEmpty)
+                        _DetailRow(
+                          icon: Icons.healing,
+                          label: 'Behandlung',
+                          text: widget.finding.treatment,
+                          theme: theme,
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// Kleines Confidence-Badge (Chip-Style) in der Titelzeile.
+class _ConfidenceBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  const _ConfidenceBadge({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: color.withValues(alpha: 0.35),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+              fontSize: 10,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Erklärender Hinweistext für low-Confidence im ausgeklappten Bereich.
+class _ConfidenceHint extends StatelessWidget {
+  final ThemeData theme;
+  final bool isDark;
+
+  const _ConfidenceHint({required this.theme, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final hintColor =
+        isDark ? const Color(0xFF90A4AE) : const Color(0xFF607D8B);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: hintColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.help_outline, size: 13, color: hintColor),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Möglicher Befund – Grundlage unsicher (z. B. Beleuchtung, Bildqualität). '
+              'Bitte genauer prüfen bevor Maßnahmen ergriffen werden.',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: hintColor,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

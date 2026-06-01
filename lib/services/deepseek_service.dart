@@ -90,6 +90,8 @@ class DeepSeekService implements AIService {
     String? previousDiagnosis,
     List<File>? historicalImages,
     List<Fertilizer>? availableFertilizers,
+    String? speciesNotes,
+    String? userContext,
   }) async {
     final content = <Map<String, dynamic>>[];
 
@@ -118,6 +120,8 @@ class DeepSeekService implements AIService {
       hasHistoricalImages:
           historicalImages != null && historicalImages.isNotEmpty,
       availableFertilizerNames: fertilizerNames,
+      speciesNotes: speciesNotes,
+      userContext: userContext,
     );
 
     content.add({'type': 'text', 'text': prompt});
@@ -136,7 +140,7 @@ class DeepSeekService implements AIService {
     final content = <Map<String, dynamic>>[...await _encodeImages(images)];
     content.add({
       'type': 'text',
-      'text': 'Analysiere dieses Düngerprodukt anhand der Fotos. Antworte auf Deutsch:\n\n'
+      'text': 'Analysiere dieses Düngerprodukt anhand der Fotos. Antworte immer auf Deutsch:\n\n'
           '1. **Produktname** und **Marke**\n'
           '2. **NPK-Verhältnis**\n'
           '3. **Geeignet für** welche Pflanzen\n'

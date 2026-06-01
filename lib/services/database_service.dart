@@ -7,6 +7,7 @@ import '../models/plant_photo.dart';
 import '../models/chat_message.dart';
 import '../models/fertilizer.dart';
 import '../models/care_schedule.dart';
+import '../models/diagnosis/diagnosis_entry.dart';
 import 'icloud_service.dart';
 import 'keychain_backup_service.dart';
 
@@ -21,6 +22,7 @@ class DatabaseService {
   late Box<Map> _chatBox;
   late Box<Map> _fertilizersBox;
   late Box<Map> _careBox;
+  late Box<Map> _diagnosisEntriesBox;
   late Directory _imageDir;
 
   Future<void> init() async {
@@ -30,6 +32,7 @@ class DatabaseService {
     _chatBox = await Hive.openBox<Map>('chat_messages');
     _fertilizersBox = await Hive.openBox<Map>('fertilizers');
     _careBox = await Hive.openBox<Map>('care_schedules');
+    _diagnosisEntriesBox = await Hive.openBox<Map>('diagnosis_entries');
 
     final appDir = await getApplicationDocumentsDirectory();
     _imageDir = Directory('${appDir.path}/plant_images');
@@ -107,7 +110,7 @@ class DatabaseService {
 
   Future<void> deletePlant(String id) async {
     await _plantsBox.delete(id);
-    // Delete associated photos, messages, care schedules
+    // Delete associated photos, messages, care schedules, diagnosis entries
     final photoKeys = _photosBox.keys
         .where((k) => _photosBox.get(k)?['plantId'] == id)
         .toList();
@@ -128,6 +131,23 @@ class DatabaseService {
         _careBox.keys.where((k) => _careBox.get(k)?['plantId'] == id).toList();
     for (final key in careKeys) {
       await _careBox.delete(key);
+    }
+    // Diagnose-Einträge dieser Pflanze löschen (inkl. Fotos)
+    final diagKeys = _diagnosisEntriesBox.keys
+        .where((k) => _diagnosisEntriesBox.get(k)?['plantId'] == id)
+        .toList();
+    for (final key in diagKeys) {
+      final entry = _diagnosisEntriesBox.get(key);
+      if (entry != null) {
+        final paths = entry['photoPaths'];
+        if (paths is List) {
+          for (final stored in paths.cast<String>()) {
+            final file = File(resolveImagePath(stored));
+            if (file.existsSync()) file.deleteSync();
+          }
+        }
+      }
+      await _diagnosisEntriesBox.delete(key);
     }
     _triggerBackup();
   }
@@ -251,5 +271,29 @@ class DatabaseService {
   Future<void> deleteCareSchedule(String id) async {
     await _careBox.delete(id);
     _triggerBackup();
+  }
+
+  // --- Diagnosis Entries ---
+
+  /// Speichert einen neuen Diagnose-Eintrag in der Box.
+  Future<void> saveDiagnosisEntry(DiagnosisEntry entry) async {
+    await _diagnosisEntriesBox.put(entry.id, entry.toJson());
+    _triggerBackup();
+  }
+
+  /// Gibt alle Diagnose-Einträge einer Pflanze sortiert nach Datum (neueste zuerst) zurück.
+  List<DiagnosisEntry> getDiagnosisHistoryForPlant(String plantId) {
+    return _diagnosisEntriesBox.values
+        .where((json) => json['plantId'] == plantId)
+        .map((json) => DiagnosisEntry.fromJson(json))
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  /// Gibt einen einzelnen Diagnose-Eintrag anhand der ID zurück.
+  DiagnosisEntry? getDiagnosisEntry(String id) {
+    final json = _diagnosisEntriesBox.get(id);
+    if (json == null) return null;
+    return DiagnosisEntry.fromJson(json);
   }
 }

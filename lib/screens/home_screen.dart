@@ -2,11 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/capture_context_tag.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import '../providers/api_key_provider.dart';
 import '../providers/database_provider.dart';
 import '../services/database_service.dart';
+import '../widgets/camera_picker_helper.dart';
 import '../widgets/photo_tips_sheet.dart';
 import 'identification_screen.dart';
 import 'plant_detail_screen.dart';
@@ -23,25 +25,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _picker = ImagePicker();
   bool _isMixedPot = false;
 
-  Future<void> _takePhoto() async {
-    // Foto-Tipps beim ersten Mal anzeigen, bevor die Kamera öffnet
-    await maybeShowPhotoTipsSheet(context);
-    if (!mounted) return;
+  /// Aktuell aktiver Kontext-Tag (vom letzten Kamera-Aufruf).
+  CaptureContextTag? _contextTag;
 
-    final photo = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85,
-      maxWidth: 1920,
-    );
-    if (photo != null && mounted) {
-      final file = File(photo.path);
-      _checkImageSize(file);
-      setState(() => _images.add(file));
+  Future<void> _takePhoto() async {
+    final capture = await openBurstCamera(context);
+    if (capture == null || !mounted) return;
+
+    for (final f in capture.photos) {
+      _checkImageSize(f);
     }
+    setState(() {
+      _images.addAll(capture.photos);
+      // Tag vom letzten Kamera-Aufruf übernehmen (falls kein Tag: bisherigen behalten)
+      if (capture.contextTag != null) {
+        _contextTag = capture.contextTag;
+      }
+    });
   }
 
   Future<void> _pickFromGallery() async {
-    // Foto-Tipps beim ersten Mal anzeigen, bevor die Galerie öffnet
     await maybeShowPhotoTipsSheet(context);
     if (!mounted) return;
 
@@ -90,6 +93,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         builder: (_) => IdentificationScreen(
           images: List.of(_images),
           isMixedPot: _isMixedPot,
+          // Kontext-Tag für spätere Diagnose mitführen
+          contextTag: _contextTag,
         ),
       ),
     );
@@ -140,7 +145,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
     await db.savePlant(plant);
 
-    // Fotos speichern falls vorhanden
+    // Fotos speichern falls vorhanden (mit Kontext-Tag)
     for (final image in _images) {
       final path = await db.persistImage(image);
       await db.savePhoto(PlantPhoto(
@@ -149,13 +154,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         filePath: path,
         takenAt: now,
         purpose: 'identification',
+        contextTag: _contextTag,
       ));
     }
 
     ref.invalidate(plantsProvider);
 
     if (!mounted) return;
-    // Direkt zur Pflanzen-Detailseite
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => PlantDetailScreen(plantId: plantId),
@@ -265,6 +270,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Aktiver Tag-Badge
+            if (_contextTag != null && _images.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _ActiveTagBadge(
+                  tag: _contextTag!,
+                  onClear: () => setState(() => _contextTag = null),
+                ),
+              ),
             if (_images.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -342,6 +356,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Zeigt den aktiven Kontext-Tag als kleinen Badge mit X-Button an.
+class _ActiveTagBadge extends StatelessWidget {
+  final CaptureContextTag tag;
+  final VoidCallback onClear;
+
+  const _ActiveTagBadge({required this.tag, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.label_outline,
+                  size: 14, color: theme.colorScheme.onPrimaryContainer),
+              const SizedBox(width: 4),
+              Text(
+                tag.chipLabel,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: onClear,
+                child: Icon(Icons.close,
+                    size: 14, color: theme.colorScheme.onPrimaryContainer),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

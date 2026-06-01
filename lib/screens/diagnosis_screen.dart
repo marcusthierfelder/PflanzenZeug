@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/capture_context_tag.dart';
+import '../models/care_profile/plant_identification_result.dart';
+import '../models/diagnosis/diagnosis_entry.dart';
 import '../models/diagnosis/diagnosis_result.dart';
 import '../models/diagnosis/finding.dart';
 import '../providers/ai_provider.dart';
@@ -21,11 +24,16 @@ class DiagnosisScreen extends ConsumerStatefulWidget {
   final String plantName;
   final String? plantId;
 
+  /// Optionaler Kontext-Tag aus dem Foto-Capture-Flow.
+  /// Wird als domänenspezifischer Kontext-Block in den Diagnose-Prompt eingefügt.
+  final CaptureContextTag? contextTag;
+
   const DiagnosisScreen({
     super.key,
     required this.images,
     required this.plantName,
     this.plantId,
+    this.contextTag,
   });
 
   @override
@@ -64,6 +72,7 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
       bool isMixedPot = false;
       String? previousDiagnosis;
       List<File>? historicalImages;
+      String? speciesNotes;
 
       if (widget.plantId != null) {
         final plant = DatabaseService.instance.getPlant(widget.plantId!);
@@ -84,6 +93,9 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
           } else {
             previousDiagnosis = plant.diagnosisResult;
           }
+
+          // Art-spezifische Hinweise aus careProfileJson extrahieren
+          speciesNotes = _buildSpeciesNotes(plant.careProfileJson);
         }
         final photos = DatabaseService.instance.getPhotosForPlant(widget.plantId!);
         final db = DatabaseService.instance;
@@ -97,6 +109,9 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
         if (older.isNotEmpty) historicalImages = older;
       }
 
+      // Kontext-Tag → Prompt-Block
+      final userContext = widget.contextTag?.toPromptContext();
+
       final result = await service.diagnosePlant(
         images: widget.images,
         plantName: widget.plantName,
@@ -106,20 +121,39 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
         previousDiagnosis: previousDiagnosis,
         historicalImages: historicalImages,
         availableFertilizers: fertilizers.isNotEmpty ? fertilizers : null,
+        speciesNotes: speciesNotes,
+        userContext: userContext,
       );
 
       setState(() => _parseResult = result);
 
-      // Pflanze in DB persistieren
+      // Pflanze in DB persistieren + DiagnosisEntry anlegen
       if (widget.plantId != null) {
         final plant = DatabaseService.instance.getPlant(widget.plantId!);
         if (plant != null) {
           if (result is ParseSuccess<DiagnosisResult>) {
             final dr = result.value;
-            // Neues Feld: strukturiertes JSON
+            // Cache-Felder für previousDiagnosis-Prompt aktuell halten
             plant.diagnosisResultJson = dr.toJsonString();
-            // Legacy-Feld: Markdown-String für Altcode-Kompatibilität
             plant.diagnosisResult = dr.toMarkdown();
+
+            // Fotos permanent speichern (Temp-Pfade → plant_images/)
+            final persistedPaths = await _persistDiagnosisPhotos();
+
+            // DiagnosisEntry anlegen
+            final db = DatabaseService.instance;
+            final entry = DiagnosisEntry(
+              id: db.generateId(),
+              plantId: widget.plantId!,
+              createdAt: DateTime.now(),
+              overallHealth: dr.overallHealth,
+              summary: dr.summary,
+              diagnosisResultJson: dr.toJsonString(),
+              photoPaths: persistedPaths,
+              contextTag: widget.contextTag?.tagKeyString,
+            );
+            await db.saveDiagnosisEntry(entry);
+            ref.invalidate(diagnosisHistoryProvider(widget.plantId!));
           } else if (result is ParsePartial<DiagnosisResult>) {
             // Fallback: Roh-Text in Legacy-Feld speichern
             plant.diagnosisResult = result.fallbackText;
@@ -137,9 +171,71 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
     }
   }
 
+  /// Kopiert alle Diagnose-Fotos aus möglicherweise temporären Pfaden
+  /// in den permanenten App-Dokumenten-Ordner.
+  /// Gibt die gespeicherten Dateinamen zurück (relativ, für resolveImagePath).
+  Future<List<String>> _persistDiagnosisPhotos() async {
+    final db = DatabaseService.instance;
+    final persisted = <String>[];
+    for (final file in widget.images) {
+      if (!file.existsSync()) continue;
+      try {
+        final filename = await db.persistImage(file);
+        persisted.add(filename);
+      } catch (_) {
+        // Defensiv: ein fehlgeschlagenes Foto darf den Rest nicht blockieren
+      }
+    }
+    return persisted;
+  }
+
   /// Hilfsfunktion: JSON-String zu Map decodieren.
   static Map<String, dynamic> _decodeJson(String jsonString) {
     return (jsonDecode(jsonString) as Map).cast<String, dynamic>();
+  }
+
+  /// Baut aus dem careProfileJson der Pflanze einen kompakten Art-Hinweis-String
+  /// für den Diagnose-Prompt.
+  static String? _buildSpeciesNotes(String? careProfileJson) {
+    if (careProfileJson == null || careProfileJson.isEmpty) return null;
+    try {
+      final json = _decodeJson(careProfileJson);
+      final result = PlantIdentificationResult.fromJson(json);
+      final buf = StringBuffer();
+
+      if (result.scientificName != null && result.scientificName!.isNotEmpty) {
+        buf.writeln('Wissenschaftlicher Name: ${result.scientificName}');
+      }
+      if (result.family != null && result.family!.isNotEmpty) {
+        buf.writeln('Familie: ${result.family}');
+      }
+
+      final cp = result.careProfile;
+      if (cp.water.shortValue.isNotEmpty && cp.water.shortValue != '–') {
+        buf.writeln('Wasserbedarf: ${cp.water.shortValue}');
+        if (cp.water.detail.isNotEmpty) buf.writeln('  → ${cp.water.detail}');
+      }
+      if (cp.light.shortValue.isNotEmpty && cp.light.shortValue != '–') {
+        buf.writeln('Lichtbedarf: ${cp.light.shortValue}');
+        if (cp.light.detail.isNotEmpty) buf.writeln('  → ${cp.light.detail}');
+      }
+      if (cp.humidity.shortValue.isNotEmpty && cp.humidity.shortValue != '–') {
+        buf.writeln('Luftfeuchtigkeit: ${cp.humidity.shortValue}');
+      }
+
+      if (result.additionalNotes != null && result.additionalNotes!.isNotEmpty) {
+        buf.writeln();
+        buf.writeln('Weitere Art-Hinweise: ${result.additionalNotes}');
+      }
+      if (result.diagnosticNotes != null && result.diagnosticNotes!.isNotEmpty) {
+        buf.writeln('Botanische Bestimmungsmerkmale: ${result.diagnosticNotes}');
+      }
+
+      final notes = buf.toString().trim();
+      return notes.isEmpty ? null : notes;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Liefert den Diagnose-String für den Chat-Screen.
@@ -249,24 +345,20 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
 
   /// Strukturierte Anzeige: Health-Header, Comparison-Banner, Findings, Recommendations.
   Widget _buildStructured(DiagnosisResult dr, ThemeData theme) {
-    // Findings severity-sortiert (high → low)
     final sortedFindings = List<Finding>.from(dr.findings)
       ..sort((a, b) => b.severity.weight.compareTo(a.severity.weight));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Health-Header
         HealthHeader(health: dr.overallHealth, summary: dr.summary),
 
-        // 2. Comparison-Banner (nur wenn vorhanden)
         if (dr.comparisonToPrevious != null &&
             dr.comparisonToPrevious!.isNotEmpty) ...[
           const SizedBox(height: 12),
           ComparisonBanner(comparisonText: dr.comparisonToPrevious!),
         ],
 
-        // 3. Findings
         if (sortedFindings.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text(
@@ -282,7 +374,6 @@ class _DiagnosisScreenState extends ConsumerState<DiagnosisScreen> {
               )),
         ],
 
-        // 4. Recommendations
         const SizedBox(height: 8),
         RecommendationsCard(recommendations: dr.recommendations),
       ],

@@ -104,6 +104,8 @@ class ClaudeService implements AIService {
     String? previousDiagnosis,
     List<File>? historicalImages,
     List<Fertilizer>? availableFertilizers,
+    String? speciesNotes,
+    String? userContext,
   }) async {
     final imageContents = <Map<String, dynamic>>[];
 
@@ -135,6 +137,8 @@ class ClaudeService implements AIService {
       hasHistoricalImages:
           historicalImages != null && historicalImages.isNotEmpty,
       availableFertilizerNames: fertilizerNames,
+      speciesNotes: speciesNotes,
+      userContext: userContext,
     );
 
     imageContents.add({'type': 'text', 'text': promptText});
@@ -159,7 +163,8 @@ class ClaudeService implements AIService {
     imageContents.add({
       'type': 'text',
       'text':
-          'Analysiere dieses Düngerprodukt anhand der Fotos. Antworte auf Deutsch:\n\n'
+          'Analysiere dieses Düngerprodukt anhand der Fotos. '
+          'Antworte immer auf Deutsch:\n\n'
           '1. **Produktname** und **Marke**\n'
           '2. **NPK-Verhältnis** (Stickstoff-Phosphor-Kalium), z.B. 7-3-6\n'
           '3. **Geeignet für** welche Pflanzen\n'

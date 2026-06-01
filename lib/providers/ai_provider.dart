@@ -45,22 +45,44 @@ final deepseekApiKeyProvider =
 class DeepSeekApiKeyNotifier extends AsyncNotifier<String?> {
   @override
   Future<String?> build() async {
-    return _secureStorage.read(key: _deepseekKeyKey);
+    // Primärer Read
+    String? key = await _secureStorage.read(key: _deepseekKeyKey);
+
+    // iOS-Keychain `first_unlock` Workaround: Einmaliger Retry nach 50 ms,
+    // falls der erste Read direkt nach einem Write noch null liefert.
+    if (key == null) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      key = await _secureStorage.read(key: _deepseekKeyKey);
+    }
+
+    return key;
   }
 
   Future<void> setApiKey(String key) async {
     await _secureStorage.write(key: _deepseekKeyKey, value: key);
-    state = AsyncData(key);
+    // ref.invalidateSelf() verhindert die Race-Condition: Kein spät
+    // resolvendes build()-Future kann den neuen Key mehr überschreiben.
+    ref.invalidateSelf();
+    // Warten bis der Re-Build abgeschlossen ist → Key sofort nutzbar.
+    await future;
   }
 
   Future<void> clearApiKey() async {
     await _secureStorage.delete(key: _deepseekKeyKey);
-    state = const AsyncData(null);
+    ref.invalidateSelf();
+    await future;
   }
 }
 
 // --- Aktiver AI-Service ---
 
+// aiServiceProvider beobachtet apiKeyProvider und deepseekApiKeyProvider via
+// ref.watch. Sobald invalidateSelf() dort einen Re-Build auslöst und der neue
+// AsyncData-State verfügbar ist, rebuildet dieser Provider automatisch mit dem
+// aktuellen Key → frischer ClaudeService / DeepSeekService ohne App-Restart.
+// KEIN autoDispose: Die Screens lesen den Provider via ref.read in Callbacks;
+// autoDispose würde den Provider nach jedem Read sofort wieder disposen, da
+// keine dauerhaften Listener existieren.
 final aiServiceProvider = Provider<AIService?>((ref) {
   final selected = ref.watch(selectedAIProviderProvider).value;
   switch (selected) {

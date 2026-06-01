@@ -86,7 +86,7 @@ Hinweise zu den Feldern:
 - Alle care_profile-Felder sind Pflicht; wenn unbekannt, schreibe sinnvolle Schätzwerte auf Basis der Gattung
 - Bei Sicherheit unter 80%: Nenne in "additional_notes" die 2–3 wahrscheinlichsten Kandidaten mit Wahrscheinlichkeit
 - "additional_notes": freier Markdown-Text mit narrativen Ergänzungen (Herkunft, Besonderheiten, Kulturhinweise)
-- Antworte auf Deutsch''';
+- WICHTIG: Antworte immer auf Deutsch. Alle Texte im JSON ausschließlich auf Deutsch.''';
   }
 
   /// Prompt-Text für DeepSeek (JSON-Mode, kein Prefill nötig).

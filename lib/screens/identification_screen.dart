@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/capture_context_tag.dart';
 import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import '../models/care_profile/plant_identification_result.dart';
@@ -19,11 +20,16 @@ class IdentificationScreen extends ConsumerStatefulWidget {
   final bool isMixedPot;
   final String? existingPlantId;
 
+  /// Optionaler Kontext-Tag vom Foto-Capture-Flow.
+  /// Wird an den DiagnosisScreen weitergereicht.
+  final CaptureContextTag? contextTag;
+
   const IdentificationScreen({
     super.key,
     required this.images,
     this.isMixedPot = false,
     this.existingPlantId,
+    this.contextTag,
   });
 
   @override
@@ -234,6 +240,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
         filePath: path,
         takenAt: now,
         purpose: 'identification',
+        contextTag: widget.contextTag,
       ));
     }
 
@@ -317,6 +324,7 @@ class _IdentificationScreenState extends ConsumerState<IdentificationScreen> {
                         images: widget.images,
                         plantName: _identified?.name ?? _rawResult!,
                         plantId: _savedPlantId,
+                        contextTag: widget.contextTag,
                       ),
                     ),
                   );

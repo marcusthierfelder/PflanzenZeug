@@ -3,6 +3,7 @@ import '../models/plant.dart';
 import '../models/plant_photo.dart';
 import '../models/chat_message.dart';
 import '../models/care_schedule.dart';
+import '../models/diagnosis/diagnosis_entry.dart';
 import '../services/database_service.dart';
 
 final databaseServiceProvider =
@@ -29,4 +30,10 @@ final plantChatProvider =
 final plantCareSchedulesProvider =
     Provider.family<List<CareSchedule>, String>((ref, plantId) {
   return ref.watch(databaseServiceProvider).getCareSchedulesForPlant(plantId);
+});
+
+/// Alle Diagnose-Einträge einer Pflanze, neueste zuerst.
+final diagnosisHistoryProvider =
+    Provider.family<List<DiagnosisEntry>, String>((ref, plantId) {
+  return ref.watch(databaseServiceProvider).getDiagnosisHistoryForPlant(plantId);
 });

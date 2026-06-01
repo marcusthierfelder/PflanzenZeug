@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/api_key_wizard_screen.dart';
 import 'screens/plant_collection_screen.dart';
@@ -24,6 +25,9 @@ class PflanzenwartApp extends ConsumerWidget {
     return MaterialApp(
       title: 'Pflanzenwart Pro',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      supportedLocales: const [Locale('de')],
+      locale: const Locale('de'),
       theme: ThemeData(
         colorSchemeSeed: Colors.green,
         brightness: Brightness.light,

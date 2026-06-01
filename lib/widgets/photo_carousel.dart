@@ -16,7 +16,13 @@ class PhotoCarousel extends ConsumerWidget {
     required this.photos,
   });
 
-  void _openFullscreen(BuildContext context, List<PlantPhoto> validPhotos, int initialIndex, DatabaseService db) {
+  void _openFullscreen(
+    BuildContext context,
+    WidgetRef ref,
+    List<PlantPhoto> validPhotos,
+    int initialIndex,
+    DatabaseService db,
+  ) {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -25,12 +31,29 @@ class PhotoCarousel extends ConsumerWidget {
           photos: validPhotos,
           initialIndex: initialIndex,
           db: db,
+          plant: plant,
+          onDelete: (PlantPhoto photo) async {
+            if (plant.coverPhotoId == photo.id) {
+              plant.coverPhotoId = null;
+              plant.updatedAt = DateTime.now();
+              await DatabaseService.instance.savePlant(plant);
+            }
+            await DatabaseService.instance.deletePhoto(photo.id);
+            ref.invalidate(plantPhotosProvider(plant.id));
+            ref.invalidate(plantProvider(plant.id));
+            ref.invalidate(plantsProvider);
+          },
         ),
       ),
     );
   }
 
-  Future<void> _showPhotoMenu(BuildContext context, WidgetRef ref, PlantPhoto photo, bool isCover) async {
+  Future<void> _showPhotoMenu(
+    BuildContext context,
+    WidgetRef ref,
+    PlantPhoto photo,
+    bool isCover,
+  ) async {
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (_) => SafeArea(
@@ -125,7 +148,7 @@ class PhotoCarousel extends ConsumerWidget {
           final photo = validPhotos[index];
           final isCover = plant.coverPhotoId == photo.id;
           return GestureDetector(
-            onTap: () => _openFullscreen(context, validPhotos, index, db),
+            onTap: () => _openFullscreen(context, ref, validPhotos, index, db),
             onLongPress: () => _showPhotoMenu(context, ref, photo, isCover),
             child: Column(
               children: [
@@ -140,6 +163,7 @@ class PhotoCarousel extends ConsumerWidget {
                           fit: BoxFit.cover,
                         ),
                       ),
+                      // Cover-Stern-Indikator (oben rechts)
                       if (isCover)
                         Positioned(
                           top: 4,
@@ -157,6 +181,26 @@ class PhotoCarousel extends ConsumerWidget {
                             ),
                           ),
                         ),
+                      // Aktions-Icon (oben links) – sichtbarer Einstiegspunkt für Menü
+                      Positioned(
+                        top: 4,
+                        left: 4,
+                        child: GestureDetector(
+                          onTap: () => _showPhotoMenu(context, ref, photo, isCover),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.more_vert,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -174,15 +218,27 @@ class PhotoCarousel extends ConsumerWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Fullscreen-Viewer
+// ---------------------------------------------------------------------------
+
 class _FullscreenPhotoView extends StatefulWidget {
   final List<PlantPhoto> photos;
   final int initialIndex;
   final DatabaseService db;
+  final Plant plant;
+
+  /// Callback: Provider-Invalidierung und DB-Aufruf werden im Eltern-Widget
+  /// (PhotoCarousel, das `ref` besitzt) ausgeführt. Der Fullscreen-Viewer
+  /// bleibt ref-frei und damit einfacher testbar.
+  final Future<void> Function(PlantPhoto photo) onDelete;
 
   const _FullscreenPhotoView({
     required this.photos,
     required this.initialIndex,
     required this.db,
+    required this.plant,
+    required this.onDelete,
   });
 
   @override
@@ -190,11 +246,15 @@ class _FullscreenPhotoView extends StatefulWidget {
 }
 
 class _FullscreenPhotoViewState extends State<_FullscreenPhotoView> {
-  late final PageController _controller;
+  late PageController _controller;
+  late List<PlantPhoto> _photos;
+  late int _currentIndex;
 
   @override
   void initState() {
     super.initState();
+    _photos = List.of(widget.photos);
+    _currentIndex = widget.initialIndex;
     _controller = PageController(initialPage: widget.initialIndex);
   }
 
@@ -204,18 +264,97 @@ class _FullscreenPhotoViewState extends State<_FullscreenPhotoView> {
     super.dispose();
   }
 
+  PlantPhoto get _currentPhoto => _photos[_currentIndex];
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Foto löschen'),
+        content: const Text('Dieses Foto unwiderruflich löschen?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    if (!mounted) return;
+
+    final photoToDelete = _currentPhoto;
+
+    // DB-Aufruf + Provider-Invalidierung über Callback im Eltern-Widget
+    await widget.onDelete(photoToDelete);
+
+    if (!mounted) return;
+
+    setState(() {
+      _photos.remove(photoToDelete);
+    });
+
+    if (_photos.isEmpty) {
+      // Letztes Foto gelöscht → Viewer schließen
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+
+    // Zum nächsten Foto wechseln (oder letztem, wenn am Ende)
+    final newIndex = _currentIndex.clamp(0, _photos.length - 1);
+    setState(() {
+      _currentIndex = newIndex;
+    });
+    _controller.jumpToPage(newIndex);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_photos.isEmpty) return const SizedBox.shrink();
+
     return Scaffold(
       backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.black45,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        // Schließt den Viewer über den Zurück-Button (ersetzt onTap-to-close
+        // für die AppBar-Zone; Body-Tap-to-close bleibt erhalten)
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Schließen',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Foto löschen',
+            onPressed: _confirmDelete,
+          ),
+        ],
+      ),
       body: GestureDetector(
+        // Tap auf den Body (außerhalb der AppBar) schließt den Viewer
         onTap: () => Navigator.of(context).pop(),
         child: PageView.builder(
           controller: _controller,
-          itemCount: widget.photos.length,
+          itemCount: _photos.length,
+          onPageChanged: (i) => setState(() => _currentIndex = i),
           itemBuilder: (_, index) {
-            final photo = widget.photos[index];
+            final photo = _photos[index];
             return InteractiveViewer(
+              // InteractiveViewer verbraucht Tap-Events beim Zoomen –
+              // GestureDetector außen bleibt als Fallback für einfachen Tap.
               child: Center(
                 child: Image.file(
                   File(widget.db.resolveImagePath(photo.filePath)),
